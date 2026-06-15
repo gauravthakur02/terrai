@@ -1,0 +1,25 @@
+from setuptools import setup, find_packages
+
+setup(
+    name="terraai",
+    version="0.1.0",
+    description="AI-powered Terraform assistant for cloud & on-prem infrastructure",
+    packages=find_packages(),
+    python_requires=">=3.10",
+    install_requires=[
+        "litellm>=1.40.0",
+        "rich>=13.7.0",
+        "typer>=0.12.0",
+        "pydantic>=2.0.0",
+        "python-hcl2>=4.3.0",
+        "prompt_toolkit>=3.0.0",
+        "pyyaml>=6.0.0",
+        "python-dotenv>=1.0.0",
+        "requests>=2.31.0",
+    ],
+    entry_points={
+        "console_scripts": [
+            "terraai=main:app",
+        ],
+    },
+)

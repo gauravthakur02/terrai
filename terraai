@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+exec "/Users/gauravkumar/Documents/terraai/.venv/bin/python" "/Users/gauravkumar/Documents/terraai/main.py" "$@"

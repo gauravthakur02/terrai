@@ -1,0 +1,772 @@
+from __future__ import annotations
+import sys
+from pathlib import Path
+from prompt_toolkit import PromptSession
+from prompt_toolkit.history import FileHistory
+from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from prompt_toolkit.styles import Style
+from prompt_toolkit.formatted_text import HTML
+from rich.live import Live
+from rich.text import Text
+from rich.spinner import Spinner
+from rich.panel import Panel
+
+from config import TerraAIConfig
+from ai import TerraAIClient, AIResponse
+from terraform import TerraformExecutor, WorkspaceManager
+from vcs import GitManager, InfrastructureChangelog, DriftDetector
+from state import StateManager, BackendWizard, BACKEND_DISPLAY
+from ui import (
+    console, banner, section, hcl_panel, plan_summary, ai_response,
+    success, warning, error, info, model_badge, resource_table,
+    PROVIDER_ICONS,
+)
+
+PROMPT_STYLE = Style.from_dict({
+    "prompt": "ansicyan bold",
+    "provider": "ansiblue",
+})
+
+HELP_TEXT = """
+[bold cyan]TerraAI Commands[/bold cyan]
+
+[bold]Infrastructure[/bold]
+  [bold]/init[/bold]                  Run terraform init
+  [bold]/plan[/bold]                  Run terraform plan
+  [bold]/apply[/bold]                 Apply planned changes
+  [bold]/destroy[/bold]               Destroy all resources (with confirmation)
+  [bold]/state[/bold]                 Show current Terraform state
+  [bold]/resources[/bold]             List managed resources
+  [bold]/outputs[/bold]               Show Terraform outputs
+  [bold]/files[/bold]                 List .tf files in workspace
+
+[bold]Version Control (Chronicle)[/bold]
+  [bold]/history[/bold]               Show git commit log for this workspace
+  [bold]/chronicle[/bold]             Show AI-authored infrastructure changelog
+  [bold]/diff [sha1] [sha2][/bold]    Show HCL diff between two commits
+  [bold]/rollback <sha>[/bold]        Restore .tf files from a previous commit
+  [bold]/tag <name> [msg][/bold]      Tag current state (e.g. v1.0-prod)
+  [bold]/tags[/bold]                  List all tags
+  [bold]/branch <name>[/bold]         Create and switch to a new git branch
+  [bold]/branches[/bold]              List all git branches
+  [bold]/drift[/bold]                 Detect out-of-band infrastructure drift
+
+[bold]State Backend[/bold]
+  [bold]/backend[/bold]               Show current state backend config
+  [bold]/backend set <type>[/bold]    Configure backend: local azurerm s3 gcs pg consul kubernetes http
+  [bold]/backend env <name>[/bold]    Switch active environment (dev/staging/prod)
+  [bold]/backend list[/bold]          Show all environment→backend mappings
+  [bold]/backend migrate[/bold]       Migrate state to newly configured backend
+
+[bold]Config[/bold]
+  [bold]/config[/bold]                Show current configuration
+  [bold]/model <name>[/bold]          Switch AI model (e.g. /model gpt-4o)
+  [bold]/workspace <path>[/bold]      Switch workspace directory
+  [bold]/providers[/bold]             List supported Terraform providers
+  [bold]/models[/bold]                List supported AI models
+  [bold]/clear[/bold]                 Clear conversation history
+  [bold]/help[/bold]                  Show this help
+  [bold]/exit[/bold]                  Exit TerraAI
+
+[dim]Or just type naturally:[/dim]
+  "create an Azure VNet with two subnets in East US"
+  "add a storage account with blob versioning and encryption"
+  "modify the VM size to Standard_D4s_v3 for the prod VM"
+  "delete the staging resource group"
+"""
+
+SUPPORTED_MODELS_TABLE = {
+    "Free Models": [
+        ("gemini/gemini-1.5-flash", "Google", "Free tier"),
+        ("gemini/gemini-1.5-pro", "Google", "Free tier"),
+        ("groq/llama3-70b-8192", "Groq", "Free tier"),
+        ("groq/mixtral-8x7b-32768", "Groq", "Free tier"),
+        ("ollama/llama3", "Ollama", "Local, free"),
+        ("ollama/codellama", "Ollama", "Local, free"),
+        ("ollama/mistral", "Ollama", "Local, free"),
+    ],
+    "Paid Models": [
+        ("gpt-4o", "OpenAI", "Best overall"),
+        ("gpt-4o-mini", "OpenAI", "Fast & cheap"),
+        ("claude-sonnet-4-6", "Anthropic", "Strong reasoning"),
+        ("claude-haiku-4-5-20251001", "Anthropic", "Fast & cheap"),
+        ("azure/gpt-4o", "Azure OpenAI", "Enterprise"),
+        ("groq/llama3-70b-8192", "Groq", "Fast inference"),
+    ],
+}
+
+
+class TerraAISession:
+    def __init__(self, config: TerraAIConfig):
+        self.config = config
+        self.client = TerraAIClient(config)
+        self.workspace = WorkspaceManager(config.workspace_dir)
+        self.executor = TerraformExecutor(config.workspace_dir, config.terraform_bin)
+        self.git = GitManager(config.workspace_dir)
+        self.changelog = InfrastructureChangelog(config.workspace_dir)
+        self.drift = DriftDetector(config.workspace_dir)
+        self.state_mgr = StateManager(config.workspace_dir)
+        self._active_env = "default"
+        self._ensure_git_init()
+        history_path = Path.home() / ".terraai" / "history"
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+        self._prompt_session = PromptSession(
+            history=FileHistory(str(history_path)),
+            auto_suggest=AutoSuggestFromHistory(),
+            style=PROMPT_STYLE,
+        )
+
+    def _ensure_git_init(self) -> None:
+        if not self.git.is_git_repo():
+            self.git.init()
+            info(f"Initialized git repository in workspace: {self.config.workspace_dir}")
+
+    def _prompt_text(self) -> HTML:
+        provider_icon = PROVIDER_ICONS.get(self.config.default_provider, "🌐")
+        workspace_name = Path(self.config.workspace_dir).name
+        branch = self.git.get_current_branch() if self.git.is_git_repo() else ""
+        branch_str = f" ⎇{branch}" if branch and branch != "main" else ""
+        env_str = f" [{self._active_env}]" if self._active_env != "default" else ""
+        return HTML(
+            f'<provider>{provider_icon} {self.config.default_provider}</provider>'
+            f'<prompt>[{workspace_name}{branch_str}{env_str}] ❯ </prompt>'
+        )
+
+    def run(self) -> None:
+        banner()
+        model_badge(self.config.model, self.config.default_provider)
+        tf_version = self.executor.version()
+        if tf_version != "unknown":
+            info(f"Terraform {tf_version} detected")
+        else:
+            warning("Terraform not found — HCL generation will work but execution commands will fail")
+        console.print(f"\n[dim]Type [bold]/help[/bold] for commands or describe your infrastructure needs[/dim]\n")
+
+        while True:
+            try:
+                user_input = self._prompt_session.prompt(self._prompt_text).strip()
+            except (KeyboardInterrupt, EOFError):
+                console.print("\n[dim]Goodbye! 👋[/dim]")
+                sys.exit(0)
+
+            if not user_input:
+                continue
+
+            if user_input.startswith("/"):
+                self._handle_command(user_input)
+            else:
+                self._handle_ai_request(user_input)
+
+    def _handle_command(self, cmd: str) -> None:
+        parts = cmd.split(maxsplit=1)
+        command = parts[0].lower()
+        arg = parts[1] if len(parts) > 1 else ""
+
+        if command == "/help":
+            console.print(Panel(HELP_TEXT, title="[bold cyan]📖 Help[/bold cyan]", border_style="cyan"))
+
+        elif command == "/config":
+            from rich.table import Table
+            from rich import box
+            t = Table(box=box.ROUNDED, show_header=False)
+            t.add_column("Key", style="bold cyan")
+            t.add_column("Value")
+            for k, v in self.config.model_dump().items():
+                t.add_row(k, str(v) if k != "api_key" else ("***" if v else "[dim]not set[/dim]"))
+            console.print(Panel(t, title="[bold]⚙️  Configuration[/bold]", border_style="dim"))
+
+        elif command == "/model":
+            if not arg:
+                error("Usage: /model <model-name>")
+                return
+            from main import _check_api_key
+            self.config.model = arg
+            if not _check_api_key(arg, self.config):
+                info(f"Model not switched — key setup incomplete. Still using: {self.config.model.split(arg)[0] or arg}")
+                return
+            self.config.save()
+            self.client = TerraAIClient(self.config)
+            success(f"Switched to model: {arg}")
+
+        elif command == "/workspace":
+            if not arg:
+                error("Usage: /workspace <path>")
+                return
+            self.config.workspace_dir = str(Path(arg).expanduser().resolve())
+            self.config.save()
+            self.workspace = WorkspaceManager(self.config.workspace_dir)
+            self.executor = TerraformExecutor(self.config.workspace_dir, self.config.terraform_bin)
+            success(f"Workspace: {self.config.workspace_dir}")
+
+        elif command == "/files":
+            files = self.workspace.list_files()
+            if not files:
+                info("No .tf files in workspace")
+                return
+            from rich.table import Table
+            from rich import box
+            t = Table(box=box.SIMPLE, show_header=True, header_style="bold cyan")
+            t.add_column("File")
+            t.add_column("Lines", justify="right")
+            t.add_column("Size", justify="right")
+            for f in files:
+                t.add_row(f"📄 {f['name']}", str(f["lines"]), f"{f['size']} B")
+            console.print(t)
+
+        elif command == "/state":
+            result = self.executor.show_state()
+            if result.success:
+                from rich.syntax import Syntax
+                console.print(Syntax(result.stdout[:3000], "hcl", theme="monokai"))
+            else:
+                warning(f"No state found or error: {result.stderr[:200]}")
+
+        elif command == "/resources":
+            resources = self.executor.list_resources()
+            if resources:
+                for r in resources:
+                    console.print(f"  [cyan]▸[/cyan] {r}")
+            else:
+                info("No resources in state (run /init and /apply first)")
+
+        elif command == "/outputs":
+            outputs = self.executor.get_outputs()
+            if outputs:
+                from rich.table import Table
+                from rich import box
+                t = Table(box=box.SIMPLE)
+                t.add_column("Output", style="bold")
+                t.add_column("Value")
+                for k, v in outputs.items():
+                    t.add_row(k, str(v.get("value", "")))
+                console.print(t)
+            else:
+                info("No outputs defined")
+
+        elif command == "/init":
+            section("Terraform Init", "🔧")
+            for line in self.executor.init():
+                _print_terraform_line(line)
+
+        elif command == "/plan":
+            section("Terraform Plan", "📋")
+            plan_output = ""
+            for line in self.executor.plan():
+                plan_output += line
+                _print_terraform_line(line)
+            stats = self.executor.parse_plan_stats(plan_output)
+            if any(stats[k] for k in ("add", "change", "destroy")):
+                plan_summary(plan_output, stats)
+
+        elif command == "/apply":
+            section("Terraform Apply", "🚀")
+            if not self.config.auto_approve:
+                console.print("[bold yellow]⚠️  This will apply changes to real infrastructure.[/bold yellow]")
+                confirm = console.input("[bold]Type 'yes' to confirm: [/bold]")
+                if confirm.strip().lower() != "yes":
+                    info("Apply cancelled")
+                    return
+            for line in self.executor.apply(auto_approve=True):
+                _print_terraform_line(line)
+
+        elif command == "/destroy":
+            section("Terraform Destroy", "💥")
+            console.print("[bold red]⚠️  DANGER: This will DESTROY all resources in your workspace![/bold red]")
+            confirm = console.input("[bold red]Type 'destroy' to confirm: [/bold red]")
+            if confirm.strip().lower() != "destroy":
+                info("Destroy cancelled")
+                return
+            for line in self.executor.destroy():
+                _print_terraform_line(line)
+
+        elif command == "/clear":
+            self.client.reset_history()
+            success("Conversation history cleared")
+
+        # ── Version Control ──────────────────────────────────────────────
+        elif command == "/history":
+            commits = self.git.get_log(limit=int(arg) if arg.isdigit() else 15)
+            if not commits:
+                info("No commits yet. Changes are committed automatically after each AI operation.")
+                return
+            from rich.table import Table
+            from rich import box
+            t = Table(box=box.SIMPLE_HEAVY, show_header=True, header_style="bold cyan")
+            t.add_column("SHA", style="bold yellow", width=10)
+            t.add_column("Message")
+            t.add_column("Author", width=12)
+            t.add_column("Date", width=20)
+            for c in commits:
+                t.add_row(c.short_sha, c.summary[:60], c.author, c.timestamp[:16])
+            console.print(t)
+
+        elif command == "/chronicle":
+            entries = self.changelog.get_entries(limit=20)
+            if not entries:
+                info("No chronicle entries yet — ask TerraAI to create some infrastructure first.")
+                return
+            section("Infrastructure Chronicle", "📖")
+            for e in entries:
+                intent_icon = {"create": "✅", "modify": "✏️", "delete": "🗑️", "configure": "⚙️"}.get(e.get("intent", ""), "▶️")
+                ts = e.get("timestamp", "")[:16].replace("T", " ")
+                console.print(f"\n[bold]{intent_icon} [{e.get('sha','')}][/bold] [dim]{ts}[/dim]")
+                console.print(f"  [white]{e.get('summary', '')}[/white]")
+                if e.get("user_request"):
+                    console.print(f"  [dim]💬 \"{e['user_request']}\"[/dim]")
+                if e.get("resources"):
+                    for r in e["resources"][:4]:
+                        act_icon = {"create": "➕", "modify": "✏️", "delete": "➖"}.get(r.get("action", ""), "▸")
+                        console.print(f"  [dim]{act_icon} {r.get('type','')}.{r.get('name','')}[/dim]")
+
+        elif command == "/diff":
+            args = arg.split() if arg else []
+            sha1 = args[0] if args else "HEAD~1"
+            sha2 = args[1] if len(args) > 1 else "HEAD"
+            diff = self.git.get_diff(sha1, sha2)
+            if diff:
+                from rich.syntax import Syntax
+                console.print(Syntax(diff, "diff", theme="monokai", line_numbers=True))
+            else:
+                info(f"No HCL differences between {sha1} and {sha2}")
+
+        elif command == "/rollback":
+            if not arg:
+                error("Usage: /rollback <sha>")
+                return
+            commits = self.git.get_log()
+            target = next((c for c in commits if c.sha.startswith(arg)), None)
+            if not target:
+                error(f"Commit {arg} not found. Run /history to list commits.")
+                return
+            console.print(f"[bold yellow]⚠️  Roll back to: {target.short_sha} — {target.summary}[/bold yellow]")
+            confirm = console.input("[bold]Type 'yes' to restore .tf files from this commit: [/bold]")
+            if confirm.strip().lower() != "yes":
+                info("Rollback cancelled")
+                return
+            tf_files = [f["name"] for f in self.workspace.list_files()]
+            for fname in tf_files:
+                if self.git.checkout_file(target.sha, fname):
+                    success(f"Restored {fname}")
+                else:
+                    warning(f"Could not restore {fname} from {target.short_sha}")
+            info("Files restored. Run /plan to review changes before applying.")
+
+        elif command == "/tag":
+            args = arg.split(maxsplit=1) if arg else []
+            if not args:
+                error("Usage: /tag <name> [message]")
+                return
+            tag_name = args[0]
+            msg = args[1] if len(args) > 1 else f"TerraAI: {tag_name}"
+            if self.git.create_tag(tag_name, msg):
+                success(f"Tagged current state as: {tag_name}")
+            else:
+                error(f"Failed to create tag '{tag_name}' (tag may already exist)")
+
+        elif command == "/tags":
+            tags = self.git.list_tags()
+            if tags:
+                for t in tags:
+                    console.print(f"  [bold yellow]🏷️  {t}[/bold yellow]")
+            else:
+                info("No tags yet. Use /tag <name> to tag a state.")
+
+        elif command == "/branch":
+            if not arg:
+                error("Usage: /branch <name>")
+                return
+            if self.git.create_branch(arg):
+                success(f"Created and switched to branch: {arg}")
+            else:
+                if self.git.switch_branch(arg):
+                    success(f"Switched to existing branch: {arg}")
+                else:
+                    error(f"Could not create or switch to branch: {arg}")
+
+        elif command == "/branches":
+            branches = self.git.list_branches()
+            current = self.git.get_current_branch()
+            for b in branches:
+                marker = "[bold green]✓[/bold green] " if b == current else "  "
+                console.print(f"{marker}[cyan]⎇[/cyan] {b}")
+
+        elif command == "/drift":
+            section("Drift Detection", "🔍")
+            snapshots = self.drift.list_snapshots()
+            if not snapshots:
+                warning("No state snapshots found. Snapshots are taken automatically after each apply.")
+                return
+            latest = snapshots[0]
+            baseline_sha = latest.get("sha", "")[:8]
+            info(f"Comparing current state against snapshot: {baseline_sha} ({latest.get('timestamp', '')[:16]})")
+            report = self.drift.detect_drift(baseline_sha)
+            if not report.has_drift:
+                success("No drift detected — infrastructure matches last known state ✅")
+            else:
+                console.print(f"\n[bold red]⚠️  Drift detected! {report.total_issues} issue(s) found[/bold red]")
+                if report.drifted_resources:
+                    console.print("\n[bold yellow]Modified (out-of-band changes):[/bold yellow]")
+                    for r in report.drifted_resources:
+                        console.print(f"  [yellow]✏️  {r['key']}[/yellow]  attrs: {', '.join(r.get('changed_attributes', []))}")
+                if report.missing_resources:
+                    console.print("\n[bold red]Missing (deleted outside Terraform):[/bold red]")
+                    for r in report.missing_resources:
+                        console.print(f"  [red]➖ {r['key']}[/red]")
+                if report.extra_resources:
+                    console.print("\n[bold cyan]Extra (created outside Terraform):[/bold cyan]")
+                    for r in report.extra_resources:
+                        console.print(f"  [cyan]➕ {r['key']}[/cyan]")
+                console.print("\n[dim]Run /plan to reconcile, or ask TerraAI to fix the drift.[/dim]")
+
+        # ── State Backend ─────────────────────────────────────────────────
+        elif command == "/backend":
+            sub = arg.strip().split(maxsplit=1) if arg else []
+            sub_cmd = sub[0] if sub else ""
+            sub_arg = sub[1] if len(sub) > 1 else ""
+
+            if not sub_cmd or sub_cmd == "show":
+                cfg = self.state_mgr.get_backend(self._active_env)
+                if cfg:
+                    from rich.table import Table
+                    from rich import box
+                    icon, label, desc = BACKEND_DISPLAY.get(cfg.type, ("🌐", cfg.type, ""))
+                    console.print(f"\n[bold]{icon} Backend:[/bold] {label}  [dim]{desc}[/dim]")
+                    t = Table(box=box.SIMPLE, show_header=False)
+                    t.add_column("Key", style="bold cyan")
+                    t.add_column("Value")
+                    for k, v in cfg.params.items():
+                        t.add_row(k, "***" if "key" in k.lower() or "conn" in k.lower() else str(v))
+                    console.print(t)
+                    console.print(f"\n[dim]Active environment:[/dim] [bold]{self._active_env}[/bold]")
+                else:
+                    info("No backend configured. Using Terraform default (local).")
+                    console.print("[dim]Configure with: /backend set <type>[/dim]")
+                    console.print("[dim]Types: local  azurerm  s3  gcs  pg  consul  kubernetes  http[/dim]")
+
+            elif sub_cmd == "set":
+                if not sub_arg:
+                    error("Usage: /backend set <type>  (local azurerm s3 gcs pg consul kubernetes http)")
+                    return
+                wizard = BackendWizard(console)
+                cfg = wizard.run(sub_arg, self._active_env)
+                if cfg:
+                    self.state_mgr.set_backend(cfg, self._active_env)
+                    path = self.state_mgr.write_backend_tf(self._active_env)
+                    success(f"Backend configured: {cfg.type}")
+                    if path:
+                        hcl_panel(path.read_text(), title=f"backend.tf ({cfg.type})")
+                    sha = self.git.commit(
+                        f"chore(backend): configure {cfg.type} state backend for {self._active_env}",
+                        author="TerraAI"
+                    )
+                    if sha:
+                        success(f"Committed backend config [{sha[:8]}]")
+                    info("Run /backend migrate to move existing state to this backend.")
+
+            elif sub_cmd == "migrate":
+                info("Running terraform init -migrate-state ...")
+                result = self.state_mgr.migrate_state(self.config.terraform_bin)
+                for line in result.stdout.splitlines():
+                    _print_terraform_line(line)
+                if result.returncode == 0:
+                    success("State migration complete")
+                else:
+                    error(f"Migration failed: {result.stderr[:300]}")
+
+            elif sub_cmd == "env":
+                if not sub_arg:
+                    envs = self.state_mgr.list_environments()
+                    info(f"Available environments: {', '.join(envs) or 'none configured'}")
+                    return
+                self._active_env = sub_arg
+                cfg = self.state_mgr.get_backend(sub_arg)
+                if cfg:
+                    self.state_mgr.write_backend_tf(sub_arg)
+                    success(f"Switched to environment: {sub_arg} (backend: {cfg.type})")
+                else:
+                    info(f"Switched to environment: {sub_arg} (no backend configured — use /backend set)")
+
+            elif sub_cmd == "list":
+                federation = self.state_mgr.get_federation_map()
+                if not federation:
+                    info("No backends configured. Use /backend set <type>.")
+                    return
+                from rich.table import Table
+                from rich import box
+                t = Table(title="🗺️  State Federation Map", box=box.ROUNDED, header_style="bold cyan")
+                t.add_column("Environment", style="bold")
+                t.add_column("Backend")
+                t.add_column("Config Summary")
+                t.add_column("Active")
+                for env, b in federation.items():
+                    active = "[bold green]✓[/bold green]" if env == self._active_env else ""
+                    t.add_row(env, f"{b['icon']} {b['type']}", b["params_summary"], active)
+                console.print(t)
+
+            else:
+                error(f"Unknown backend subcommand: {sub_cmd}. Try /backend set/list/env/migrate")
+
+        elif command == "/providers":
+            from ui.panels import provider_status_table
+            from config import SUPPORTED_PROVIDERS
+            provider_status_table(list(SUPPORTED_PROVIDERS.keys()))
+
+        elif command == "/models":
+            from rich.table import Table
+            from rich import box
+            for category, models in SUPPORTED_MODELS_TABLE.items():
+                t = Table(title=category, box=box.ROUNDED, show_header=True, header_style="bold cyan")
+                t.add_column("Model ID")
+                t.add_column("Provider")
+                t.add_column("Notes")
+                for m in models:
+                    t.add_row(*m)
+                console.print(t)
+            console.print("[dim]Usage: /model <model-id>[/dim]")
+
+        elif command in ("/exit", "/quit", "/q"):
+            console.print("[dim]Goodbye! 👋[/dim]")
+            sys.exit(0)
+
+        else:
+            error(f"Unknown command: {command}. Type /help for available commands.")
+
+    def _handle_ai_request(self, user_input: str) -> None:
+        workspace_context = self.workspace.get_context()
+        ai_resp: AIResponse | None = None
+
+        console.print()
+        try:
+            with Live(Spinner("dots", text="[magenta]🤖 Thinking...[/magenta]"), refresh_per_second=10, console=console):
+                ai_resp = self.client.ask_sync(user_input, workspace_context)
+        except Exception as exc:
+            _handle_ai_error(exc, self.config.model)
+            return
+
+        if not ai_resp:
+            error("No response from AI")
+            return
+
+        section(f"{ai_resp.intent.upper()} — {ai_resp.summary[:60]}", PROVIDER_ICONS.get(
+            ai_resp.providers[0] if ai_resp.providers else "unknown", "🌐"
+        ))
+
+        if ai_resp.summary:
+            console.print(f"\n[bold white]{ai_resp.summary}[/bold white]")
+
+        if ai_resp.warnings:
+            for w in ai_resp.warnings:
+                warning(w)
+
+        if ai_resp.resources:
+            resource_table([
+                {**r, "provider": ai_resp.providers[0] if ai_resp.providers else "unknown", "status": "pending"}
+                for r in ai_resp.resources
+            ])
+
+        if ai_resp.has_hcl and self.config.show_raw_hcl:
+            hcl_panel(ai_resp.hcl)
+
+        if ai_resp.has_hcl:
+            if ai_resp.is_destructive:
+                console.print("[bold red]⚠️  This action will DELETE resources.[/bold red]")
+
+            suggested_file = self.workspace.suggest_filename(
+                ai_resp.intent, ai_resp.providers, ai_resp.resources
+            )
+
+            console.print(f"\n[dim]Suggested file:[/dim] [bold]{suggested_file}[/bold]")
+            action = console.input(
+                f"[bold cyan]💾 Save to [white]{suggested_file}[/white]? "
+                f"([green]y[/green]=yes, [yellow]r[/yellow]=rename, [red]n[/red]=skip, "
+                f"[blue]p[/blue]=plan after save): [/bold cyan]"
+            ).strip().lower()
+
+            if action in ("y", "yes", "p"):
+                saved_path = self.workspace.write_hcl(suggested_file, ai_resp.hcl)
+                success(f"Saved → {saved_path}")
+                self._auto_commit(ai_resp, suggested_file, user_input)
+
+                if action == "p":
+                    section("Terraform Plan", "📋")
+                    plan_output = ""
+                    for line in self.executor.plan():
+                        plan_output += line
+                        _print_terraform_line(line)
+                    stats = self.executor.parse_plan_stats(plan_output)
+                    if any(stats[k] for k in ("add", "change", "destroy")):
+                        plan_summary(plan_output, stats)
+
+            elif action == "r":
+                new_name = console.input("[bold]Enter filename (without .tf): [/bold]").strip()
+                if new_name:
+                    saved_path = self.workspace.write_hcl(new_name, ai_resp.hcl)
+                    success(f"Saved → {saved_path}")
+                    self._auto_commit(ai_resp, new_name + ".tf", user_input)
+            else:
+                info("HCL not saved (you can ask again or modify your request)")
+
+        if ai_resp.next_steps:
+            console.print("\n[bold cyan]💡 Suggested next steps:[/bold cyan]")
+            for step in ai_resp.next_steps:
+                console.print(f"  [dim]▸[/dim] {step}")
+
+        console.print()
+
+    def _auto_commit(self, ai_resp: AIResponse, hcl_file: str, user_request: str) -> None:
+        """Auto-commit HCL change to git and record it in the chronicle."""
+        commit_msg = self.git.build_commit_message(
+            ai_resp.summary, ai_resp.intent,
+            ai_resp.providers, ai_resp.resources,
+        )
+        sha = self.git.commit(commit_msg, author="TerraAI")
+        if sha:
+            console.print(f"[dim]📝 Auto-committed [{sha[:8]}] — /history to view[/dim]")
+            self.changelog.record_change(
+                git_sha=sha,
+                intent=ai_resp.intent,
+                summary=ai_resp.summary,
+                providers=ai_resp.providers,
+                resources=ai_resp.resources,
+                warnings=ai_resp.warnings,
+                user_request=user_request,
+                hcl_file=hcl_file,
+            )
+            self.drift.snapshot_state(sha)
+
+
+def _handle_ai_error(exc: Exception, model: str) -> None:
+    """Translate LiteLLM exceptions into friendly, actionable messages."""
+    from rich.panel import Panel
+    msg = str(exc)
+
+    # Ollama: model not pulled
+    if "model" in msg and "not found" in msg and model.startswith("ollama/"):
+        model_name = model.split("/", 1)[-1]
+        console.print(Panel(
+            f"[bold red]Ollama model not found:[/bold red] [white]{model_name}[/white]\n\n"
+            f"Pull it first:\n"
+            f"  [bold green]ollama pull {model_name}[/bold green]\n\n"
+            f"Then re-run your request. Check available models with:\n"
+            f"  [bold green]ollama list[/bold green]",
+            title="[bold yellow]⚠️  Ollama Model Missing[/bold yellow]",
+            border_style="yellow",
+        ))
+        return
+
+    # Ollama: server not running
+    if ("connection refused" in msg.lower() or "connection error" in msg.lower()) and model.startswith("ollama/"):
+        console.print(Panel(
+            "[bold red]Cannot connect to Ollama.[/bold red]\n\n"
+            "Start Ollama first:\n"
+            "  [bold green]ollama serve[/bold green]\n\n"
+            "Default address: [cyan]http://localhost:11434[/cyan]\n"
+            "Custom address:  [cyan]./terraai --model ollama/codellama --api-base http://HOST:PORT[/cyan]",
+            title="[bold yellow]⚠️  Ollama Not Running[/bold yellow]",
+            border_style="yellow",
+        ))
+        return
+
+    # Auth / API key errors
+    if any(k in msg.lower() for k in ("401", "403", "unauthorized", "invalid api key", "authentication")):
+        env_var = _model_to_env_var(model)
+        console.print(Panel(
+            f"[bold red]Authentication failed for model:[/bold red] [white]{model}[/white]\n\n"
+            f"Your API key is missing or invalid.\n\n"
+            f"Fix options:\n"
+            f"  [cyan]1[/cyan]  export [bold]{env_var}[/bold]=your_key\n"
+            f"  [cyan]2[/cyan]  ./terraai configure --api-key your_key\n"
+            f"  [cyan]3[/cyan]  ./terraai --api-key your_key  (inline, not saved)\n\n"
+            f"Run [bold]./terraai models[/bold] to see which env var each model needs.",
+            title="[bold red]🔑 API Key Error[/bold red]",
+            border_style="red",
+        ))
+        return
+
+    # Rate limit
+    if any(k in msg.lower() for k in ("429", "rate limit", "quota")):
+        console.print(Panel(
+            f"[bold yellow]Rate limit hit for:[/bold yellow] [white]{model}[/white]\n\n"
+            "Wait a moment and try again, or switch to a different model:\n"
+            "  [bold green]/model groq/llama3-70b-8192[/bold green]   (generous free tier)\n"
+            "  [bold green]/model ollama/codellama[/bold green]        (local, no limits)",
+            title="[bold yellow]⚠️  Rate Limited[/bold yellow]",
+            border_style="yellow",
+        ))
+        return
+
+    # Model not found on provider
+    if any(k in msg.lower() for k in ("model not found", "no such model", "does not exist", "404")):
+        console.print(Panel(
+            f"[bold red]Model not found:[/bold red] [white]{model}[/white]\n\n"
+            "Check the model ID is correct. Run:\n"
+            "  [bold green]./terraai models[/bold green]  — to list valid model IDs\n\n"
+            "Common fixes:\n"
+            "  • Ollama: [bold]ollama pull codellama[/bold]\n"
+            "  • Groq: check [cyan]console.groq.com[/cyan] for available model names\n"
+            "  • OpenAI: use [bold]gpt-4o[/bold] or [bold]gpt-4o-mini[/bold]",
+            title="[bold red]❌ Model Not Found[/bold red]",
+            border_style="red",
+        ))
+        return
+
+    # Timeout
+    if "timeout" in msg.lower():
+        console.print(Panel(
+            f"[bold yellow]Request timed out for:[/bold yellow] [white]{model}[/white]\n\n"
+            "The model took too long to respond.\n"
+            "Try a faster model:\n"
+            "  [bold green]/model groq/llama3-70b-8192[/bold green]   (very fast)\n"
+            "  [bold green]/model gpt-4o-mini[/bold green]            (fast + cheap)",
+            title="[bold yellow]⏱️  Timeout[/bold yellow]",
+            border_style="yellow",
+        ))
+        return
+
+    # Generic fallback — show error but don't crash
+    console.print(Panel(
+        f"[bold red]AI request failed[/bold red]\n\n"
+        f"Model: [white]{model}[/white]\n"
+        f"Error: [yellow]{msg[:300]}[/yellow]\n\n"
+        "You can:\n"
+        "  • Try rephrasing your request\n"
+        "  • Switch model: [bold]/model gpt-4o-mini[/bold]\n"
+        "  • Check your API key: [bold]/config[/bold]",
+        title="[bold red]❌ AI Error[/bold red]",
+        border_style="red",
+    ))
+
+
+def _model_to_env_var(model: str) -> str:
+    prefix = model.lower().split("/")[0]
+    return {
+        "gpt": "OPENAI_API_KEY", "o1": "OPENAI_API_KEY",
+        "claude": "ANTHROPIC_API_KEY",
+        "gemini": "GEMINI_API_KEY",
+        "groq": "GROQ_API_KEY",
+        "azure": "AZURE_OPENAI_API_KEY",
+        "mistral": "MISTRAL_API_KEY",
+        "cohere": "COHERE_API_KEY",
+    }.get(prefix, "OPENAI_API_KEY")
+
+
+def _print_terraform_line(line: str) -> None:
+    line = line.rstrip()
+    if not line:
+        return
+    if "Error" in line or "error" in line:
+        console.print(f"[red]{line}[/red]")
+    elif "Warning" in line or "warning" in line:
+        console.print(f"[yellow]{line}[/yellow]")
+    elif line.startswith("  +") or "will be created" in line:
+        console.print(f"[green]{line}[/green]")
+    elif line.startswith("  -") or "will be destroyed" in line:
+        console.print(f"[red]{line}[/red]")
+    elif line.startswith("  ~") or "will be updated" in line:
+        console.print(f"[yellow]{line}[/yellow]")
+    elif "Apply complete" in line or "successfully" in line.lower():
+        console.print(f"[bold green]{line}[/bold green]")
+    elif "Plan:" in line:
+        console.print(f"[bold yellow]{line}[/bold yellow]")
+    else:
+        console.print(f"[dim]{line}[/dim]")
