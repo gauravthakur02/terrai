@@ -182,9 +182,18 @@ class SetupWizard:
             gitignore = ws / ".gitignore"
             if not gitignore.exists():
                 gitignore.write_text(
-                    "# TerraAI — auto-generated .gitignore\n"
-                    ".terraform/\n*.tfvars\ntfplan\n.terraform.lock.hcl\n"
-                    "terraform.tfstate\nterraform.tfstate.backup\n.terraai/\n"
+                    "# Terraform provider cache & plan artefacts\n"
+                    ".terraform/\n.terraform.lock.hcl\ntfplan\n\n"
+                    "# Sensitive variable files — never commit secrets\n"
+                    "*.tfvars\n*.tfvars.json\n\n"
+                    "# Terraform state — store in a remote backend instead\n"
+                    "terraform.tfstate\nterraform.tfstate.backup\n\n"
+                    "# Override files (local dev only)\n"
+                    "override.tf\noverride.tf.json\n*_override.tf\n*_override.tf.json\n\n"
+                    "# TerraAI internal data\n"
+                    ".terraai/\n*.enc\n\n"
+                    "# OS metadata\n"
+                    ".DS_Store\nThumbs.db\n"
                 )
             self.console.print(f"[green]✓ Initialised git repo in {ws}[/green]\n")
         except subprocess.CalledProcessError as e:

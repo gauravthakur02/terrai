@@ -61,18 +61,27 @@ class GitManager:
         gitignore = self.root / ".gitignore"
         if not gitignore.exists():
             gitignore.write_text(
-                "# Terraform\n"
+                "# Terraform provider cache & plan artefacts\n"
                 ".terraform/\n"
                 ".terraform.lock.hcl\n"
-                "tfplan\n"
+                "tfplan\n\n"
+                "# Sensitive variable files — never commit secrets\n"
                 "*.tfvars\n"
+                "*.tfvars.json\n\n"
+                "# Terraform state — store in a remote backend instead\n"
+                "terraform.tfstate\n"
+                "terraform.tfstate.backup\n\n"
+                "# Override files (local dev only)\n"
                 "override.tf\n"
                 "override.tf.json\n"
                 "*_override.tf\n"
                 "*_override.tf.json\n\n"
-                "# TerraAI\n"
+                "# TerraAI internal data (chronicle, snapshots, keyring cache)\n"
                 ".terraai/\n"
-                "*.enc\n"
+                "*.enc\n\n"
+                "# OS metadata\n"
+                ".DS_Store\n"
+                "Thumbs.db\n"
             )
 
     def stage_all(self) -> None:

@@ -28,7 +28,7 @@ from terraform.executor import TerraformExecutor
 from terraform.workspace import WorkspaceManager
 from ai.client import AIResponse
 
-WORKSPACE = Path("/Users/gauravkumar/Documents/terraai-demo")
+WORKSPACE = Path.home() / "terraai-demo"
 
 # ── Realistic AI response the model would return ─────────────────────────────
 MOCK_AI_RESPONSE = AIResponse({
@@ -336,7 +336,7 @@ def main() -> None:
         "  2. [green]export ARM_CLIENT_ID=<app-id>[/green]\n"
         "  3. [green]export ARM_CLIENT_SECRET=<secret>[/green]\n"
         "  4. [green]export ARM_TENANT_ID=<tenant-id>[/green]\n"
-        "  5. Run [bold]./terraai --workspace /Users/gauravkumar/Documents/terraai-demo[/bold]\n"
+        f"  5. Run [bold]./terraai --workspace {WORKSPACE}[/bold]\n"
         "  6. Type [bold]/init[/bold] then [bold]/apply[/bold]",
         title="[bold cyan]🌍 TerraAI Demo Summary[/bold cyan]",
         border_style="cyan",

@@ -15,12 +15,13 @@ fi
 "$VENV/bin/pip" install -q --upgrade pip
 "$VENV/bin/pip" install -q -r "$SCRIPT_DIR/requirements.txt"
 
-# Create wrapper script
+# Create wrapper script — uses $SCRIPT_DIR computed at runtime, not at install time
 WRAPPER="$SCRIPT_DIR/terraai"
-cat > "$WRAPPER" << EOF
+cat > "$WRAPPER" << 'WRAPPER_EOF'
 #!/usr/bin/env bash
-exec "$VENV/bin/python" "$SCRIPT_DIR/main.py" "\$@"
-EOF
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "$SCRIPT_DIR/.venv/bin/python" "$SCRIPT_DIR/main.py" "$@"
+WRAPPER_EOF
 chmod +x "$WRAPPER"
 
 echo "✅ TerraAI installed!"
