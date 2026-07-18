@@ -5,14 +5,18 @@ Build with:  pyinstaller terraai.spec
 """
 import sys
 from pathlib import Path
+from PyInstaller.utils.hooks import collect_data_files
 
 block_cipher = None
+
+# Bundle all litellm data files (JSON/YAML model pricing + config)
+litellm_datas = collect_data_files('litellm', includes=['**/*.json', '**/*.yaml', '**/*.yml'])
 
 a = Analysis(
     ['main.py'],
     pathex=[str(Path('').resolve())],
     binaries=[],
-    datas=[],
+    datas=litellm_datas,
     hiddenimports=[
         # LiteLLM providers
         'litellm',
