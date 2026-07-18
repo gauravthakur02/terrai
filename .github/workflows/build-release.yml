@@ -65,6 +65,45 @@ jobs:
             chmod +x "release/terraai-${{ matrix.platform }}"
           fi
 
+      - name: Sign & notarize (macOS only)
+        if: runner.os == 'macOS' && env.APPLE_CERTIFICATE != ''
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          # Import certificate into temporary keychain
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p actions build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p actions build.keychain
+          security import certificate.p12 -k build.keychain \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k actions build.keychain
+
+          BINARY="release/terraai-${{ matrix.platform }}"
+
+          # Sign
+          codesign --force --deep --options runtime \
+            --sign "Developer ID Application: $APPLE_TEAM_ID" "$BINARY"
+
+          # Zip for notarization
+          ditto -c -k --keepParent "$BINARY" "$BINARY.zip"
+
+          # Submit for notarization
+          xcrun notarytool submit "$BINARY.zip" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+
+          # Staple
+          xcrun stapler staple "$BINARY"
+          rm "$BINARY.zip" certificate.p12
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -110,16 +149,26 @@ jobs:
             ### Quick start
 
             ```bash
-            # macOS / Linux
+            # macOS
             chmod +x terraai-macos-arm64
-            ./terraai-macos-arm64 --help
+            xattr -d com.apple.quarantine terraai-macos-arm64
+            ./terraai-macos-arm64
+
+            # Linux
+            chmod +x terraai-linux-x64
+            ./terraai-linux-x64
 
             # Windows (PowerShell)
-            .\terraai-windows-x64.exe --help
+            .\terraai-windows-x64.exe
             ```
 
-            ### Setup
+            > **macOS — "Apple could not verify" warning**
+            > The binary is not code-signed (no Apple Developer account required).
+            > Run `xattr -d com.apple.quarantine terraai-macos-arm64` in Terminal,
+            > or right-click the file → **Open** → **Open** to bypass Gatekeeper once.
+
+            ### First run
             ```bash
-            ./terraai-macos-arm64        # runs first-time setup wizard
+            ./terraai-macos-arm64        # launches the setup wizard automatically
             ./terraai-macos-arm64 setup  # re-run setup at any time
             ```
