@@ -16,6 +16,119 @@ sys.path.insert(0, str(Path(__file__).parent))
 from config import TerraAIConfig, MODEL_PRESETS, SUPPORTED_PROVIDERS
 from ui import console, banner, success, error, info, warning, model_badge
 
+# The directory this script lives in — never use it as a workspace
+_TERRAAI_SRC_DIR = Path(__file__).parent.resolve()
+
+
+def _resolve_workspace(configured: Optional[str]) -> Optional[str]:
+    """
+    Return a valid, absolute workspace path — never the terraai source directory.
+
+    Priority:
+      1. Explicitly passed via --workspace or saved in config  → use as-is (create if missing)
+      2. Not set → interactive picker: enter path or create a new named directory
+    """
+    # 1. Explicitly configured
+    if configured:
+        p = Path(configured).expanduser().resolve()
+        if p == _TERRAAI_SRC_DIR:
+            warning("Workspace cannot be the TerraAI source directory.")
+            warning("Please choose a different path.\n")
+        else:
+            p.mkdir(parents=True, exist_ok=True)
+            return str(p)
+
+    # 2. Interactive picker
+    console.print()
+    console.print(
+        "[bold cyan]📂 Workspace Setup[/bold cyan]\n"
+        "[dim]Where should TerraAI write your Terraform files?[/dim]\n"
+    )
+
+    recent = _recent_workspaces()
+    if recent:
+        console.print("[dim]Recent workspaces:[/dim]")
+        for i, r in enumerate(recent, 1):
+            console.print(f"  [cyan]{i}[/cyan]  {r}")
+        console.print()
+
+    console.print(
+        "  [cyan]n[/cyan]  Create a new directory\n"
+        "  [cyan]p[/cyan]  Enter a path manually\n"
+    )
+
+    if recent:
+        console.print("[dim]Press 1-{} to reuse a recent workspace, or n/p:[/dim]".format(len(recent)))
+
+    choice = console.input("[bold]Choice: [/bold]").strip().lower()
+
+    # Reuse recent
+    if recent and choice.isdigit() and 1 <= int(choice) <= len(recent):
+        p = Path(recent[int(choice) - 1]).resolve()
+        p.mkdir(parents=True, exist_ok=True)
+        success(f"Workspace: {p}")
+        _save_recent_workspace(str(p))
+        return str(p)
+
+    # Manual path
+    if choice == "p":
+        raw = console.input("[bold]Enter path: [/bold]").strip()
+        if not raw:
+            error("No path entered.")
+            return None
+        p = Path(raw).expanduser().resolve()
+        if p == _TERRAAI_SRC_DIR:
+            error("Cannot use the TerraAI source directory as workspace.")
+            return None
+        p.mkdir(parents=True, exist_ok=True)
+        success(f"Workspace: {p}")
+        _save_recent_workspace(str(p))
+        return str(p)
+
+    # Create new directory
+    if choice == "n" or not choice:
+        name = console.input(
+            "[bold]Directory name [/bold][dim](will be created in ~/terraai-workspaces/): [/dim]"
+        ).strip()
+        if not name:
+            error("No name entered.")
+            return None
+        p = (Path.home() / "terraai-workspaces" / name).resolve()
+        p.mkdir(parents=True, exist_ok=True)
+        success(f"Created workspace: {p}")
+        _save_recent_workspace(str(p))
+        return str(p)
+
+    error(f"Unknown choice: {choice}")
+    return None
+
+
+def _recent_workspaces(limit: int = 5) -> list[str]:
+    history_file = Path.home() / ".terraai" / "workspaces.txt"
+    if not history_file.exists():
+        return []
+    lines = [l.strip() for l in history_file.read_text().splitlines() if l.strip()]
+    # Return only paths that still exist, most-recent first, deduplicated
+    seen: set[str] = set()
+    result = []
+    for line in reversed(lines):
+        if line not in seen and Path(line).exists():
+            seen.add(line)
+            result.append(line)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _save_recent_workspace(path: str) -> None:
+    history_file = Path.home() / ".terraai" / "workspaces.txt"
+    history_file.parent.mkdir(parents=True, exist_ok=True)
+    existing = history_file.read_text().splitlines() if history_file.exists() else []
+    existing = [l for l in existing if l.strip() and l.strip() != path]
+    existing.append(path)
+    history_file.write_text("\n".join(existing[-20:]) + "\n")  # keep last 20
+
+
 # Maps model prefix → (env var name, friendly name, signup URL)
 API_KEY_REGISTRY: dict[str, tuple[str, str, str]] = {
     "gpt":          ("OPENAI_API_KEY",       "OpenAI",       "https://platform.openai.com/api-keys"),
@@ -204,9 +317,26 @@ def root(
     if api_base:
         config.api_base = api_base
 
-    # Check API key before starting the session
-    if not _check_api_key(config.model, config):
-        raise typer.Exit(0)
+    # First-time setup wizard
+    if not config.setup_complete:
+        from setup import SetupWizard
+        wizard = SetupWizard(console, config, _TERRAAI_SRC_DIR)
+        config = wizard.run()
+        if not config.workspace_dir:
+            raise typer.Exit(0)
+    else:
+        # Resolve workspace — must not default to the terraai source directory
+        config.workspace_dir = _resolve_workspace(config.workspace_dir)
+        if not config.workspace_dir:
+            raise typer.Exit(0)
+
+        # Check API key before starting the session
+        if not _check_api_key(config.model, config):
+            raise typer.Exit(0)
+
+    # Apply saved Azure credentials to the process environment
+    if config.default_provider == "azure":
+        config.apply_azure_env()
 
     session = TerraAISession(config)
     session.run()
@@ -234,7 +364,13 @@ def configure(
         config.api_base = api_base
         changed = True
     if workspace:
-        config.workspace_dir = str(Path(workspace).expanduser().resolve())
+        p = Path(workspace).expanduser().resolve()
+        if p == _TERRAAI_SRC_DIR:
+            error("Cannot set the TerraAI source directory as workspace. Choose a different path.")
+            raise typer.Exit(1)
+        p.mkdir(parents=True, exist_ok=True)
+        config.workspace_dir = str(p)
+        _save_recent_workspace(str(p))
         changed = True
     if provider:
         if provider not in SUPPORTED_PROVIDERS:
@@ -303,6 +439,16 @@ def list_models() -> None:
         title="[bold]🔑 API Key Setup[/bold]",
         border_style="cyan",
     ))
+
+
+@app.command("setup")
+def run_setup() -> None:
+    """Re-run the first-time setup wizard (workspace, git, AI model, credentials, backend)."""
+    from setup import SetupWizard
+    config = TerraAIConfig.load()
+    config.setup_complete = False  # force wizard
+    wizard = SetupWizard(console, config, _TERRAAI_SRC_DIR)
+    wizard.run()
 
 
 @app.command("providers")

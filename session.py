@@ -14,7 +14,7 @@ from rich.panel import Panel
 from config import TerraAIConfig
 from ai import TerraAIClient, AIResponse
 from terraform import TerraformExecutor, WorkspaceManager
-from vcs import GitManager, InfrastructureChangelog, DriftDetector
+from vcs import GitManager, InfrastructureChangelog, DriftDetector, InfrastructureDiagram
 from state import StateManager, BackendWizard, BACKEND_DISPLAY
 from ui import (
     console, banner, section, hcl_panel, plan_summary, ai_response,
@@ -39,6 +39,7 @@ HELP_TEXT = """
   [bold]/resources[/bold]             List managed resources
   [bold]/outputs[/bold]               Show Terraform outputs
   [bold]/files[/bold]                 List .tf files in workspace
+  [bold]/diagram[/bold]               Generate interactive architecture diagram (HTML)
 
 [bold]Version Control (Chronicle)[/bold]
   [bold]/history[/bold]               Show git commit log for this workspace
@@ -108,6 +109,7 @@ class TerraAISession:
         self.state_mgr = StateManager(config.workspace_dir)
         self._active_env = "default"
         self._ensure_git_init()
+        self._prompt_pending_backend()
         history_path = Path.home() / ".terraai" / "history"
         history_path.parent.mkdir(parents=True, exist_ok=True)
         self._prompt_session = PromptSession(
@@ -120,6 +122,35 @@ class TerraAISession:
         if not self.git.is_git_repo():
             self.git.init()
             info(f"Initialized git repository in workspace: {self.config.workspace_dir}")
+
+    def _prompt_pending_backend(self) -> None:
+        """If setup wizard recorded a pending backend choice, offer to configure it now."""
+        pending = Path(self.config.workspace_dir) / ".terraai" / "pending_backend"
+        if not pending.exists():
+            return
+        backend_type = pending.read_text().strip()
+        pending.unlink(missing_ok=True)
+        if not backend_type:
+            return
+        console.print()
+        icon, label, _ = BACKEND_DISPLAY.get(backend_type, ("🗂️", backend_type, ""))
+        want = console.input(
+            f"[bold cyan]🗂️  Configure {icon} {label} state backend now?[/bold cyan] (y/n): "
+        ).strip().lower()
+        if want == "y":
+            wizard = BackendWizard(console)
+            cfg = wizard.run(backend_type, self._active_env)
+            if cfg:
+                self.state_mgr.set_backend(cfg, self._active_env)
+                path = self.state_mgr.write_backend_tf(self._active_env)
+                success(f"Backend configured: {cfg.type}")
+                if path:
+                    hcl_panel(path.read_text(), title=f"backend.tf ({cfg.type})")
+                self.git.commit(
+                    f"chore(backend): configure {cfg.type} backend for {self._active_env}",
+                    author="TerraAI",
+                )
+        console.print()
 
     def _prompt_text(self) -> HTML:
         provider_icon = PROVIDER_ICONS.get(self.config.default_provider, "🌐")
@@ -506,6 +537,9 @@ class TerraAISession:
             else:
                 error(f"Unknown backend subcommand: {sub_cmd}. Try /backend set/list/env/migrate")
 
+        elif command == "/diagram":
+            self._handle_diagram(arg)
+
         elif command == "/providers":
             from ui.panels import provider_status_table
             from config import SUPPORTED_PROVIDERS
@@ -530,6 +564,39 @@ class TerraAISession:
 
         else:
             error(f"Unknown command: {command}. Type /help for available commands.")
+
+    def _handle_diagram(self, arg: str) -> None:
+        """Generate and open an interactive architecture diagram."""
+        section("Architecture Diagram", "🗺️")
+        diag = InfrastructureDiagram(self.config.workspace_dir)
+        resources = diag.parse_resources()
+
+        if not resources:
+            warning(
+                "No resources found. Run /apply first, or make sure .tf files are in the workspace."
+            )
+            return
+
+        edges = diag.detect_relationships(resources)
+        console.print(diag.ascii_summary(resources, edges))
+        console.print()
+
+        filename = arg.strip() or "architecture.html"
+        out = diag.save(resources, edges, filename)
+        success(f"Diagram saved → {out}")
+        info(f"Open in browser: file://{out}")
+
+        # Auto-open in browser if possible
+        import subprocess, sys
+        try:
+            if sys.platform == "darwin":
+                subprocess.Popen(["open", str(out)])
+            elif sys.platform == "linux":
+                subprocess.Popen(["xdg-open", str(out)])
+            elif sys.platform == "win32":
+                subprocess.Popen(["start", str(out)], shell=True)
+        except Exception:
+            pass
 
     def _handle_ai_request(self, user_input: str) -> None:
         workspace_context = self.workspace.get_context()

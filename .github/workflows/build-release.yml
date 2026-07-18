@@ -1,0 +1,129 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. v0.2.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14          # Apple Silicon
+            platform: macos-arm64
+            binary: terraai
+          - os: macos-13          # Intel
+            platform: macos-x64
+            binary: terraai
+          - os: ubuntu-22.04
+            platform: linux-x64
+            binary: terraai
+          - os: windows-2022
+            platform: windows-x64
+            binary: terraai.exe
+
+    runs-on: ${{ matrix.os }}
+    name: Build (${{ matrix.platform }})
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build binary (macOS / Linux)
+        if: runner.os != 'Windows'
+        run: pyinstaller terraai.spec --noconfirm --log-level WARN
+
+      - name: Build binary (Windows)
+        if: runner.os == 'Windows'
+        run: pyinstaller terraai.spec --noconfirm --log-level WARN
+
+      - name: Rename binary
+        shell: bash
+        run: |
+          mkdir -p release
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp dist/terraai.exe "release/terraai-${{ matrix.platform }}.exe"
+          else
+            cp dist/terraai "release/terraai-${{ matrix.platform }}"
+            chmod +x "release/terraai-${{ matrix.platform }}"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraai-${{ matrix.platform }}
+          path: release/
+          retention-days: 7
+
+  release:
+    needs: build
+    runs-on: ubuntu-22.04
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release/
+          merge-multiple: true
+
+      - name: List release files
+        run: ls -lh release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+          body: |
+            ## TerraAI ${{ github.ref_name }}
+
+            AI-powered Terraform CLI — manage cloud infrastructure in plain English.
+
+            ### Downloads
+
+            | Platform | File |
+            |----------|------|
+            | macOS (Apple Silicon) | `terraai-macos-arm64` |
+            | macOS (Intel) | `terraai-macos-x64` |
+            | Linux x86_64 | `terraai-linux-x64` |
+            | Windows x64 | `terraai-windows-x64.exe` |
+
+            ### Quick start
+
+            ```bash
+            # macOS / Linux
+            chmod +x terraai-macos-arm64
+            ./terraai-macos-arm64 --help
+
+            # Windows (PowerShell)
+            .\terraai-windows-x64.exe --help
+            ```
+
+            ### Setup
+            ```bash
+            ./terraai-macos-arm64        # runs first-time setup wizard
+            ./terraai-macos-arm64 setup  # re-run setup at any time
+            ```
