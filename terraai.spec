@@ -12,11 +12,14 @@ block_cipher = None
 # Bundle all litellm data files (JSON/YAML model pricing + config)
 litellm_datas = collect_data_files('litellm', includes=['**/*.json', '**/*.yaml', '**/*.yml'])
 
+# Bundle tiktoken BPE encoding files (pre-downloaded, avoids runtime internet fetch)
+tiktoken_datas = [('tiktoken_cache/*.tiktoken', 'tiktoken_cache')]
+
 a = Analysis(
     ['main.py'],
     pathex=[str(Path('').resolve())],
     binaries=[],
-    datas=litellm_datas,
+    datas=litellm_datas + tiktoken_datas,
     hiddenimports=[
         # LiteLLM providers
         'litellm',
@@ -49,6 +52,11 @@ a = Analysis(
         'keyring.backends.Windows',
         'keyring.backends.SecretService',
         'keyring.backends.fail',
+        # tiktoken encodings
+        'tiktoken',
+        'tiktoken.registry',
+        'tiktoken_ext',
+        'tiktoken_ext.openai_public',
         # HCL2
         'hcl2',
         # Internal modules
@@ -76,7 +84,7 @@ a = Analysis(
     ],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['hooks/rthook_tiktoken.py'],
     excludes=[
         'tkinter', 'matplotlib', 'numpy', 'pandas',
         'scipy', 'PIL', 'cv2', 'torch',

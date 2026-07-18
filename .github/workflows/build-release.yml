@@ -46,12 +46,22 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      - name: Download tiktoken BPE files
+        shell: bash
+        run: |
+          mkdir -p tiktoken_cache
+          BASE="https://openaipublic.blob.core.windows.net/encodings"
+          for name in r50k_base p50k_base cl100k_base o200k_base; do
+            curl -fsSL "$BASE/${name}.tiktoken" -o "tiktoken_cache/${name}.tiktoken"
+          done
+
       - name: Build binary (macOS / Linux)
         if: runner.os != 'Windows'
         run: pyinstaller terraai.spec --noconfirm --log-level WARN
 
       - name: Build binary (Windows)
         if: runner.os == 'Windows'
+        shell: bash
         run: pyinstaller terraai.spec --noconfirm --log-level WARN
 
       - name: Rename binary
