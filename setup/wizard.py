@@ -193,7 +193,8 @@ class SetupWizard:
                     "# TerraAI internal data\n"
                     ".terraai/\n*.enc\n\n"
                     "# OS metadata\n"
-                    ".DS_Store\nThumbs.db\n"
+                    ".DS_Store\nThumbs.db\n",
+                    encoding='utf-8',
                 )
             self.console.print(f"[green]✓ Initialised git repo in {ws}[/green]\n")
         except subprocess.CalledProcessError as e:

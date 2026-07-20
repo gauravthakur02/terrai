@@ -126,7 +126,7 @@ def _save_recent_workspace(path: str) -> None:
     existing = history_file.read_text().splitlines() if history_file.exists() else []
     existing = [l for l in existing if l.strip() and l.strip() != path]
     existing.append(path)
-    history_file.write_text("\n".join(existing[-20:]) + "\n")  # keep last 20
+    history_file.write_text("\n".join(existing[-20:]) + "\n", encoding='utf-8')  # keep last 20
 
 
 # Maps model prefix → (env var name, friendly name, signup URL)

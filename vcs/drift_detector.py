@@ -52,7 +52,7 @@ class DriftDetector:
             "sha": git_sha,
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "checksum": checksum,
-        }))
+        }), encoding='utf-8')
         return checksum
 
     def detect_drift(self, baseline_sha: str) -> DriftReport:

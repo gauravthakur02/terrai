@@ -114,7 +114,7 @@ class InfrastructureChangelog:
 
             lines += ["", "---", ""]
 
-        md_path.write_text("\n".join(lines, encoding='utf-8'))
+        md_path.write_text("\n".join(lines), encoding='utf-8')
 
     def get_entries(self, limit: int = 20) -> list[dict]:
         return self._load_chronicle()[:limit]
