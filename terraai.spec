@@ -42,6 +42,8 @@ a = Analysis(
     hiddenimports=[
         # LiteLLM providers
         'litellm',
+        'google.generativeai',
+        'google.ai.generativelanguage',
         'litellm.utils',
         'litellm.main',
         'litellm.exceptions',

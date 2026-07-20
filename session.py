@@ -212,8 +212,9 @@ class TerraAISession:
             console.print(Panel(t, title="[bold]⚙️  Configuration[/bold]", border_style="dim"))
 
         elif command == "/model":
-            if not arg:
-                error("Usage: /model <model-name>")
+            if not arg or arg.lower() in ("list", "ls"):
+                info(f"Current model: {self.config.model}")
+                console.print("[dim]Run /models to see all available models[/dim]")
                 return
             from main import _check_api_key
             self.config.model = arg

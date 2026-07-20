@@ -60,24 +60,59 @@ class TerraAIClient:
         self._history = []
 
     @staticmethod
+    def _fix_newlines(s: str) -> str:
+        """Escape literal newlines/tabs inside JSON string values."""
+        result, in_string = [], False
+        i = 0
+        while i < len(s):
+            c = s[i]
+            if c == '\\' and in_string:          # already-escaped char — keep as-is
+                result.append(c)
+                i += 1
+                if i < len(s):
+                    result.append(s[i])
+                    i += 1
+                continue
+            if c == '"':
+                in_string = not in_string
+            elif in_string and c == '\n':
+                result.append('\\n'); i += 1; continue
+            elif in_string and c == '\r':
+                result.append('\\r'); i += 1; continue
+            elif in_string and c == '\t':
+                result.append('\\t'); i += 1; continue
+            result.append(c)
+            i += 1
+        return ''.join(result)
+
+    @staticmethod
     def _parse_json(text: str) -> dict:
         """Extract and parse the first JSON object from model output."""
         text = text.strip()
         # Strip markdown fences
         if text.startswith("```"):
             text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-        # Direct parse
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            pass
+
+        for candidate in [
+            text,
+            TerraAIClient._fix_newlines(text),
+        ]:
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                pass
+
         # Find the outermost {...} block (handles prose wrapping JSON)
         match = re.search(r'\{.*\}', text, re.DOTALL)
         if match:
-            try:
-                return json.loads(match.group())
-            except json.JSONDecodeError:
-                pass
+            for candidate in [
+                match.group(),
+                TerraAIClient._fix_newlines(match.group()),
+            ]:
+                try:
+                    return json.loads(candidate)
+                except json.JSONDecodeError:
+                    pass
         return {}
 
     @staticmethod
