@@ -74,13 +74,13 @@ class TerraAIConfig(BaseModel):
     @classmethod
     def load(cls) -> "TerraAIConfig":
         if CONFIG_PATH.exists():
-            data = yaml.safe_load(CONFIG_PATH.read_text()) or {}
+            data = yaml.safe_load(CONFIG_PATH.read_text(encoding='utf-8')) or {}
             return cls(**{k: v for k, v in data.items() if v is not None})
         return cls()
 
     def save(self) -> None:
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        CONFIG_PATH.write_text(yaml.dump(self.model_dump(exclude_none=True), default_flow_style=False))
+        CONFIG_PATH.write_text(yaml.dump(self.model_dump(exclude_none=True, encoding='utf-8'), default_flow_style=False))
         # Restrict permissions so only the owner can read the config file
         try:
             CONFIG_PATH.chmod(stat.S_IRUSR | stat.S_IWUSR)

@@ -516,6 +516,6 @@ class SetupWizard:
             if ws:
                 meta_dir = ws / ".terraai"
                 meta_dir.mkdir(exist_ok=True)
-                (meta_dir / "pending_backend").write_text(backend_type)
+                (meta_dir / "pending_backend").write_text(backend_type, encoding='utf-8')
         else:
             self.console.print("[dim]Skipped. Configure later with: /backend set <type>[/dim]\n")

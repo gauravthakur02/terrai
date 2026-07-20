@@ -24,13 +24,13 @@ class StateManager:
     def _load_all(self) -> dict:
         if self._config_path.exists():
             try:
-                return json.loads(self._config_path.read_text())
+                return json.loads(self._config_path.read_text(encoding='utf-8'))
             except Exception:
                 pass
         return {}
 
     def _save_all(self, data: dict) -> None:
-        self._config_path.write_text(json.dumps(data, indent=2))
+        self._config_path.write_text(json.dumps(data, indent=2, encoding='utf-8'))
 
     def set_backend(self, config: BackendConfig, environment: str = "default") -> None:
         """Save backend config for a given environment."""
@@ -52,7 +52,7 @@ class StateManager:
         if not config:
             return None
         backend_tf = self.root / BACKEND_TF_FILE
-        backend_tf.write_text(config.to_hcl() + "\n")
+        backend_tf.write_text(config.to_hcl(, encoding='utf-8') + "\n")
         return backend_tf
 
     def migrate_state(self, executor_bin: str = "terraform") -> subprocess.CompletedProcess:

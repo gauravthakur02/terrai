@@ -24,13 +24,13 @@ class InfrastructureChangelog:
     def _load_chronicle(self) -> list[dict]:
         if self._chronicle_path.exists():
             try:
-                return json.loads(self._chronicle_path.read_text())
+                return json.loads(self._chronicle_path.read_text(encoding='utf-8'))
             except Exception:
                 pass
         return []
 
     def _save_chronicle(self, entries: list[dict]) -> None:
-        self._chronicle_path.write_text(json.dumps(entries, indent=2))
+        self._chronicle_path.write_text(json.dumps(entries, indent=2, encoding='utf-8'))
 
     def record_change(
         self,
@@ -114,7 +114,7 @@ class InfrastructureChangelog:
 
             lines += ["", "---", ""]
 
-        md_path.write_text("\n".join(lines))
+        md_path.write_text("\n".join(lines, encoding='utf-8'))
 
     def get_entries(self, limit: int = 20) -> list[dict]:
         return self._load_chronicle()[:limit]

@@ -128,7 +128,7 @@ class TerraAISession:
         pending = Path(self.config.workspace_dir) / ".terraai" / "pending_backend"
         if not pending.exists():
             return
-        backend_type = pending.read_text().strip()
+        backend_type = pending.read_text(encoding='utf-8').strip()
         pending.unlink(missing_ok=True)
         if not backend_type:
             return
@@ -145,7 +145,7 @@ class TerraAISession:
                 path = self.state_mgr.write_backend_tf(self._active_env)
                 success(f"Backend configured: {cfg.type}")
                 if path:
-                    hcl_panel(path.read_text(), title=f"backend.tf ({cfg.type})")
+                    hcl_panel(path.read_text(encoding='utf-8'), title=f"backend.tf ({cfg.type})")
                 self.git.commit(
                     f"chore(backend): configure {cfg.type} backend for {self._active_env}",
                     author="TerraAI",
@@ -485,7 +485,7 @@ class TerraAISession:
                     path = self.state_mgr.write_backend_tf(self._active_env)
                     success(f"Backend configured: {cfg.type}")
                     if path:
-                        hcl_panel(path.read_text(), title=f"backend.tf ({cfg.type})")
+                        hcl_panel(path.read_text(encoding='utf-8'), title=f"backend.tf ({cfg.type})")
                     sha = self.git.commit(
                         f"chore(backend): configure {cfg.type} state backend for {self._active_env}",
                         author="TerraAI"

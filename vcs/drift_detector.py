@@ -42,9 +42,9 @@ class DriftDetector:
         if not state_file.exists():
             return None
 
-        content = state_file.read_text()
+        content = state_file.read_text(encoding='utf-8')
         snap_path = self.snapshot_dir / f"{git_sha[:8]}.json"
-        snap_path.write_text(content)
+        snap_path.write_text(content, encoding='utf-8')
 
         checksum = hashlib.sha256(content.encode()).hexdigest()
         meta_path = self.snapshot_dir / f"{git_sha[:8]}.meta"
@@ -108,7 +108,7 @@ class DriftDetector:
         snapshots = []
         for f in sorted(self.snapshot_dir.glob("*.meta"), key=lambda x: x.stat().st_mtime, reverse=True):
             try:
-                meta = json.loads(f.read_text())
+                meta = json.loads(f.read_text(encoding='utf-8'))
                 snapshots.append(meta)
             except Exception:
                 pass
@@ -119,7 +119,7 @@ class DriftDetector:
         if not state_file.exists():
             return None
         try:
-            return json.loads(state_file.read_text())
+            return json.loads(state_file.read_text(encoding='utf-8'))
         except Exception:
             return None
 
@@ -128,7 +128,7 @@ class DriftDetector:
         if not snap.exists():
             return None
         try:
-            return json.loads(snap.read_text())
+            return json.loads(snap.read_text(encoding='utf-8'))
         except Exception:
             return None
 

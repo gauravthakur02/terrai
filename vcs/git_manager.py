@@ -81,7 +81,8 @@ class GitManager:
                 "*.enc\n\n"
                 "# OS metadata\n"
                 ".DS_Store\n"
-                "Thumbs.db\n"
+                "Thumbs.db\n",
+                encoding='utf-8',
             )
 
     def stage_all(self) -> None:

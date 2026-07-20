@@ -132,7 +132,7 @@ class InfrastructureDiagram:
     def _parse_state(self, state_file: Path) -> dict[str, ResourceNode]:
         nodes: dict[str, ResourceNode] = {}
         try:
-            data = json.loads(state_file.read_text())
+            data = json.loads(state_file.read_text(encoding='utf-8'))
             for res in data.get("resources", []):
                 rtype = res.get("type", "")
                 rname = res.get("name", "")
@@ -156,7 +156,7 @@ class InfrastructureDiagram:
 
     def _parse_hcl(self, tf_file: Path) -> dict[str, ResourceNode]:
         nodes: dict[str, ResourceNode] = {}
-        text = tf_file.read_text()
+        text = tf_file.read_text(encoding='utf-8')
         # Match: resource "TYPE" "NAME" {
         for m in re.finditer(r'resource\s+"([^"]+)"\s+"([^"]+)"\s*\{', text):
             rtype, rname = m.group(1), m.group(2)
@@ -188,7 +188,7 @@ class InfrastructureDiagram:
         resource_keys = {n.key for n in resources}
 
         for tf_file in sorted(self.workspace.glob("*.tf")):
-            text = tf_file.read_text()
+            text = tf_file.read_text(encoding='utf-8')
             # Find patterns like: azurerm_resource_group.rg_prod.name
             for m in re.finditer(
                 r'([a-z][a-z0-9_]+)\.([a-z][a-z0-9_]+)\.[a-z_]+', text
@@ -552,7 +552,7 @@ fitAll();
             edges = self.detect_relationships(resources)
         html = self.generate_html(resources, edges)
         out = self.workspace / filename
-        out.write_text(html)
+        out.write_text(html, encoding='utf-8')
         return out
 
     def ascii_summary(self, resources: list[ResourceNode], edges: list[ResourceEdge]) -> str:

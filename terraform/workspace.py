@@ -19,14 +19,14 @@ class WorkspaceManager:
         if tf_files:
             parts.append("## Existing Terraform Files")
             for f in tf_files:
-                parts.append(f"\n### {f.name}\n```hcl\n{f.read_text()}\n```")
+                parts.append(f"\n### {f.name}\n```hcl\n{f.read_text(encoding='utf-8')}\n```")
         else:
             parts.append("## Existing Terraform Files\nNo .tf files found in workspace.")
 
         state_file = self.root / "terraform.tfstate"
         if state_file.exists():
             try:
-                state = json.loads(state_file.read_text())
+                state = json.loads(state_file.read_text(encoding='utf-8'))
                 resources = state.get("resources", [])
                 if resources:
                     parts.append(f"\n## Current State ({len(resources)} resources)")
@@ -43,12 +43,12 @@ class WorkspaceManager:
         if not filename.endswith(".tf"):
             filename += ".tf"
         path = self.root / filename
-        path.write_text(content)
+        path.write_text(content, encoding='utf-8')
         return path
 
     def read_hcl(self, filename: str) -> Optional[str]:
         path = self.root / filename
-        return path.read_text() if path.exists() else None
+        return path.read_text(encoding='utf-8') if path.exists() else None
 
     def delete_hcl(self, filename: str) -> bool:
         path = self.root / filename
@@ -63,13 +63,13 @@ class WorkspaceManager:
             result.append({
                 "name": f.name,
                 "size": f.stat().st_size,
-                "lines": len(f.read_text().splitlines()),
+                "lines": len(f.read_text(encoding='utf-8').splitlines()),
             })
         return result
 
     def has_provider_block(self, provider: str) -> bool:
         for f in self.get_tf_files():
-            if provider in f.read_text():
+            if provider in f.read_text(encoding='utf-8'):
                 return True
         return False
 
