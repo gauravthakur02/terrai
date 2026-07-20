@@ -5,7 +5,7 @@ Build with:  pyinstaller terraai.spec
 """
 import sys
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
 
@@ -14,6 +14,19 @@ litellm_datas = collect_data_files('litellm', includes=['**/*.json', '**/*.yaml'
 
 # Bundle tiktoken BPE encoding files (pre-downloaded, avoids runtime internet fetch)
 tiktoken_datas = [('tiktoken_cache/*.tiktoken', 'tiktoken_cache')]
+
+# Collect all submodules of internal packages so PyInstaller doesn't miss any
+internal_hidden = (
+    collect_submodules('config')
+    + collect_submodules('ai')
+    + collect_submodules('session')
+    + collect_submodules('setup')
+    + collect_submodules('terraform')
+    + collect_submodules('vcs')
+    + collect_submodules('state')
+    + collect_submodules('ui')
+    + collect_submodules('providers')
+)
 
 a = Analysis(
     ['main.py'],
@@ -59,29 +72,7 @@ a = Analysis(
         'tiktoken_ext.openai_public',
         # HCL2
         'hcl2',
-        # Internal modules
-        'config',
-        'config.settings',
-        'ai',
-        'ai.client',
-        'ai.prompts',
-        'session',
-        'setup',
-        'setup.wizard',
-        'terraform',
-        'terraform.executor',
-        'terraform.workspace',
-        'vcs',
-        'vcs.git_manager',
-        'vcs.changelog',
-        'vcs.drift_detector',
-        'vcs.diagram',
-        'state',
-        'state.backends',
-        'state.manager',
-        'ui',
-        'ui.panels',
-    ],
+    ] + internal_hidden,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=['hooks/rthook_tiktoken.py'],
@@ -111,7 +102,7 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True,   # Terminal app
+    console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
