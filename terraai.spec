@@ -15,6 +15,9 @@ block_cipher = None
 # Bundle all litellm data files (JSON/YAML model pricing + config)
 litellm_datas = collect_data_files('litellm', includes=['**/*.json', '**/*.yaml', '**/*.yml'])
 
+# Bundle hcl2 Lark grammar file (hcl2.lark) — required at runtime
+hcl2_datas = collect_data_files('hcl2')
+
 # Bundle tiktoken BPE encoding files (pre-downloaded, avoids runtime internet fetch)
 tiktoken_datas = [('tiktoken_cache/*.tiktoken', 'tiktoken_cache')]
 
@@ -35,7 +38,7 @@ a = Analysis(
     ['main.py'],
     pathex=[str(Path('').resolve())],
     binaries=[],
-    datas=litellm_datas + tiktoken_datas,
+    datas=litellm_datas + hcl2_datas + tiktoken_datas,
     hiddenimports=[
         # LiteLLM providers
         'litellm',
