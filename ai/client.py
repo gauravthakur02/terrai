@@ -150,8 +150,11 @@ class TerraAIClient:
             "stream": True,
         }
 
-        if self.config.api_base and self.config.model.startswith("ollama"):
+        if self.config.model.startswith("ollama"):
             kwargs["api_base"] = self.config.api_base or "http://localhost:11434"
+            # Disable thinking-mode for Qwen3 and future models that support it;
+            # ollama ignores unknown options so this is safe for all ollama models.
+            kwargs["extra_body"] = {"think": False}
 
         key = self.config.get_api_key()
         if key:
@@ -187,7 +190,10 @@ class TerraAIClient:
             "messages": messages,
             "temperature": self.config.temperature,
         }
-        if self.config.api_base:
+        if self.config.model.startswith("ollama"):
+            kwargs["api_base"] = self.config.api_base or "http://localhost:11434"
+            kwargs["extra_body"] = {"think": False}
+        elif self.config.api_base:
             kwargs["api_base"] = self.config.api_base
 
         key = self.config.get_api_key()

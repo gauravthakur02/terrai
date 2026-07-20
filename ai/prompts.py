@@ -18,8 +18,8 @@ If you explain the format instead of filling it in, you have failed. Do not desc
 Required structure (fill in every field):
 {"intent":"create","providers":["azure"],"summary":"one line","resources":[{"name":"rg","type":"azurerm_resource_group","action":"create"}],"hcl":"terraform { ... }","variables":{},"outputs":{},"warnings":[],"next_steps":[]}
 
-Example — user says "create a resource group named rg-prod in West Europe":
-{"intent":"create","providers":["azure"],"summary":"Create resource group rg-prod in West Europe","resources":[{"name":"rg-prod","type":"azurerm_resource_group","action":"create"}],"hcl":"terraform {\n  required_providers {\n    azurerm = { source = \"hashicorp/azurerm\", version = \"~> 3.0\" }\n  }\n}\nprovider \"azurerm\" { features {} }\nresource \"azurerm_resource_group\" \"rg_prod\" {\n  name     = \"rg-prod\"\n  location = \"West Europe\"\n}","variables":{},"outputs":{},"warnings":[],"next_steps":[]}
+Example — user says "create resource group rg-prod in West Europe and storage account mystorage01 with Standard LRS":
+{"intent":"create","providers":["azure"],"summary":"Create resource group rg-prod and storage account mystorage01","resources":[{"name":"rg-prod","type":"azurerm_resource_group","action":"create"},{"name":"mystorage01","type":"azurerm_storage_account","action":"create"}],"hcl":"terraform {\n  required_providers {\n    azurerm = { source = \"hashicorp/azurerm\", version = \"~> 3.0\" }\n  }\n}\nprovider \"azurerm\" { features {} }\nresource \"azurerm_resource_group\" \"rg_prod\" {\n  name     = \"rg-prod\"\n  location = \"West Europe\"\n}\nresource \"azurerm_storage_account\" \"mystorage01\" {\n  name                     = \"mystorage01\"\n  resource_group_name      = azurerm_resource_group.rg_prod.name\n  location                 = azurerm_resource_group.rg_prod.location\n  account_tier             = \"Standard\"\n  account_replication_type = \"LRS\"\n}","variables":{},"outputs":{},"warnings":[],"next_steps":[]}
 
 ## HCL Guidelines
 - Always include `terraform` block with `required_providers` when generating new files
@@ -36,6 +36,9 @@ Example — user says "create a resource group named rg-prod in West Europe":
 - Use `azurerm` provider version `~> 3.0` or `~> 4.0`
 - Always include `features {}` block in provider
 - Subscription ID via `var.subscription_id` or data source
+- `azurerm_storage_account` REQUIRED fields: `name`, `resource_group_name`, `location`, `account_tier` ("Standard"|"Premium"), `account_replication_type` ("LRS"|"GRS"|"RAGRS"|"ZRS")
+- `azurerm_virtual_network` REQUIRED fields: `name`, `resource_group_name`, `location`, `address_space`
+- `azurerm_subnet` REQUIRED fields: `name`, `resource_group_name`, `virtual_network_name`, `address_prefixes`
 
 ## Multi-provider
 When a request spans multiple providers, generate a single coherent HCL file with all required provider blocks.
