@@ -80,8 +80,8 @@ HELP_TEXT = """
 SUPPORTED_MODELS_TABLE = {
     "Free Models": [
         ("gemini/gemini-2.0-flash", "Google", "Free tier — recommended"),
-        ("gemini/gemini-1.5-flash", "Google", "Free tier"),
-        ("gemini/gemini-1.5-pro", "Google", "Free tier"),
+        ("gemini/gemini-1.5-flash", "Google", "Free tier (older)"),
+        ("gemini/gemini-1.5-pro", "Google", "Free tier (older)"),
         ("groq/llama3-70b-8192", "Groq", "Free tier"),
         ("groq/mixtral-8x7b-32768", "Groq", "Free tier"),
         ("ollama/llama3", "Ollama", "Local, free"),

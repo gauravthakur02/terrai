@@ -41,6 +41,8 @@ MODEL_PRESETS = {
     "gpt-3.5-turbo": {"provider": "openai", "free": False},
     "claude-sonnet-4-6": {"provider": "anthropic", "free": False},
     "claude-haiku-4-5-20251001": {"provider": "anthropic", "free": False},
+    "gemini/gemini-2.0-flash": {"provider": "google", "free": True},
+    "gemini/gemini-2.5-pro": {"provider": "google", "free": True},
     "gemini/gemini-1.5-pro": {"provider": "google", "free": True},
     "gemini/gemini-1.5-flash": {"provider": "google", "free": True},
     "groq/llama3-70b-8192": {"provider": "groq", "free": True},

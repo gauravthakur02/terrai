@@ -29,7 +29,7 @@ class SetupWizard:
 
     FREE_MODELS = [
         ("groq/llama3-70b-8192",    "Groq",    "Free tier — fastest option",     "GROQ_API_KEY",   "console.groq.com/keys"),
-        ("gemini/gemini-1.5-flash", "Google",  "Free tier — large context",      "GEMINI_API_KEY", "aistudio.google.com/app/apikey"),
+        ("gemini/gemini-2.0-flash", "Google",  "Free tier — recommended",        "GEMINI_API_KEY", "aistudio.google.com/app/apikey"),
         ("ollama/codellama",        "Ollama",  "Local — no key, needs 8 GB RAM", None,             "ollama.com"),
         ("ollama/llama3",           "Ollama",  "Local — general purpose",        None,             "ollama.com"),
     ]

@@ -259,8 +259,8 @@ def _print_free_models() -> None:
     free = [
         ("groq/llama3-70b-8192",    "Groq",   "export GROQ_API_KEY=...",              "Free tier at console.groq.com"),
         ("groq/mixtral-8x7b-32768", "Groq",   "export GROQ_API_KEY=...",              "Free tier at console.groq.com"),
-        ("gemini/gemini-1.5-flash", "Google", "export GEMINI_API_KEY=...",            "Free tier at aistudio.google.com"),
-        ("gemini/gemini-1.5-pro",   "Google", "export GEMINI_API_KEY=...",            "Free tier at aistudio.google.com"),
+        ("gemini/gemini-2.0-flash", "Google", "export GEMINI_API_KEY=...",            "Free tier at aistudio.google.com"),
+        ("gemini/gemini-2.5-pro",   "Google", "export GEMINI_API_KEY=...",            "Free tier at aistudio.google.com"),
         ("ollama/llama3",           "Ollama", "ollama serve && ollama pull llama3",   "❌ No key needed (local)"),
         ("ollama/codellama",        "Ollama", "ollama serve && ollama pull codellama","❌ No key needed (local)"),
         ("ollama/mistral",          "Ollama", "ollama serve && ollama pull mistral",  "❌ No key needed (local)"),
@@ -302,7 +302,7 @@ def root(
       [bold]# Specify model and provider[/bold]
       terraai --model gpt-4o --provider azure
       terraai --model groq/llama3-70b-8192 --provider azure
-      terraai --model gemini/gemini-1.5-pro
+      terraai --model gemini/gemini-2.0-flash
 
       [bold]# Local Ollama (free, no API key)[/bold]
       terraai --model ollama/codellama --api-base http://localhost:11434
@@ -450,7 +450,7 @@ def list_models() -> None:
         "  [cyan]Option 3[/cyan] — Pass inline at launch (not saved):\n"
         "    [green]terraai --model gpt-4o --api-key sk-...[/green]\n\n"
         "  [cyan]Option 4[/cyan] — In session, switch model and you'll be prompted:\n"
-        "    [green]/model gemini/gemini-1.5-pro[/green]",
+        "    [green]/model gemini/gemini-2.0-flash[/green]",
         title="[bold]🔑 API Key Setup[/bold]",
         border_style="cyan",
     ))
