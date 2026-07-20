@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import os
+import re
 from typing import Generator, Optional
 import litellm
 from litellm import completion
@@ -58,6 +59,39 @@ class TerraAIClient:
     def reset_history(self) -> None:
         self._history = []
 
+    @staticmethod
+    def _parse_json(text: str) -> dict:
+        """Extract and parse the first JSON object from model output."""
+        text = text.strip()
+        # Strip markdown fences
+        if text.startswith("```"):
+            text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        # Direct parse
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+        # Find the outermost {...} block (handles prose wrapping JSON)
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group())
+            except json.JSONDecodeError:
+                pass
+        return {}
+
+    @staticmethod
+    def _fallback(raw: str) -> AIResponse:
+        return AIResponse({
+            "intent": "explain",
+            "summary": raw,
+            "hcl": "",
+            "providers": [],
+            "resources": [],
+            "warnings": ["Model did not return valid JSON — try /model to switch to a stronger model (e.g. claude-sonnet-4-6 or gpt-4o)"],
+            "next_steps": ["/model"],
+        })
+
     def ask(self, user_message: str, workspace_context: str = "") -> Generator[str, None, AIResponse]:
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
@@ -94,21 +128,10 @@ class TerraAIClient:
         self._history.append({"role": "user", "content": user_message})
         self._history.append({"role": "assistant", "content": full_response})
 
-        try:
-            cleaned = full_response.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("\n", 1)[1].rsplit("```", 1)[0]
-            return AIResponse(json.loads(cleaned))
-        except (json.JSONDecodeError, ValueError):
-            return AIResponse({
-                "intent": "explain",
-                "summary": full_response,
-                "hcl": "",
-                "providers": [],
-                "resources": [],
-                "warnings": ["Could not parse structured response"],
-                "next_steps": [],
-            })
+        parsed = self._parse_json(full_response)
+        if parsed:
+            return AIResponse(parsed)
+        return self._fallback(full_response)
 
     def ask_sync(self, user_message: str, workspace_context: str = "") -> AIResponse:
         """Non-streaming version for simple queries."""
@@ -134,9 +157,7 @@ class TerraAIClient:
         self._history.append({"role": "user", "content": user_message})
         self._history.append({"role": "assistant", "content": raw})
 
-        try:
-            if raw.startswith("```"):
-                raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
-            return AIResponse(json.loads(raw))
-        except (json.JSONDecodeError, ValueError):
-            return AIResponse({"intent": "explain", "summary": raw, "hcl": "", "providers": [], "resources": [], "warnings": [], "next_steps": []})
+        parsed = self._parse_json(raw)
+        if parsed:
+            return AIResponse(parsed)
+        return self._fallback(raw)

@@ -183,8 +183,13 @@ class TerraAISession:
             if not user_input:
                 continue
 
+            # Allow bare words for common commands (e.g. "apply" == "/apply")
+            _BARE = {"apply", "plan", "init", "destroy", "help", "quit", "exit",
+                     "history", "state", "files", "config", "diagram", "drift"}
             if user_input.startswith("/"):
                 self._handle_command(user_input)
+            elif user_input.split()[0].lower() in _BARE:
+                self._handle_command("/" + user_input)
             else:
                 self._handle_ai_request(user_input)
 
