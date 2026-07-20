@@ -63,7 +63,10 @@ HELP_TEXT = """
   [bold]/config[/bold]                Show current configuration
   [bold]/model <name>[/bold]          Switch AI model (e.g. /model gpt-4o)
   [bold]/apikey <key>[/bold]          Update stored API key (use after revoking/rotating a key)
-  [bold]/workspace <path>[/bold]      Switch workspace directory
+  [bold]/workspace[/bold]             Switch workspace (interactive picker: recent, new, or path)
+  [bold]/workspace <path>[/bold]      Switch straight to a workspace directory (created if missing)
+  [bold]/workspace new <name>[/bold]  Create a new workspace under ~/terraai-workspaces/
+  [bold]/workspaces[/bold]            List recent workspaces
   [bold]/providers[/bold]             List supported Terraform providers
   [bold]/models[/bold]                List supported AI models
   [bold]/clear[/bold]                 Clear conversation history
@@ -164,6 +167,101 @@ class TerraAISession:
                 )
         console.print()
 
+    def _switch_workspace(self, path: str) -> None:
+        """Switch the active session to `path`, creating it if needed, and
+        re-point every workspace-scoped manager (git, changelog, drift,
+        state, executor) — not just self.workspace — at the new directory."""
+        from main import _TERRAAI_SRC_DIR, _save_recent_workspace
+
+        p = Path(path).expanduser().resolve()
+        if p == _TERRAAI_SRC_DIR:
+            error("Cannot use the TerraAI source directory as workspace.")
+            return
+
+        p.mkdir(parents=True, exist_ok=True)
+        self.config.workspace_dir = str(p)
+        self.config.save()
+
+        self.workspace = WorkspaceManager(self.config.workspace_dir)
+        self.executor = TerraformExecutor(self.config.workspace_dir, self.config.terraform_bin)
+        self.git = GitManager(self.config.workspace_dir)
+        self.changelog = InfrastructureChangelog(self.config.workspace_dir)
+        self.drift = DriftDetector(self.config.workspace_dir)
+        self.state_mgr = StateManager(self.config.workspace_dir)
+        self._active_env = "default"
+
+        self._ensure_git_init()
+        self._prompt_pending_backend()
+        _save_recent_workspace(str(p))
+        success(f"Workspace: {p}")
+
+    def _workspace_picker(self) -> None:
+        from main import _recent_workspaces
+
+        console.print()
+        console.print(f"[dim]Current workspace:[/dim] {self.config.workspace_dir}\n")
+
+        recent = [w for w in _recent_workspaces(limit=8) if w != self.config.workspace_dir]
+        if recent:
+            console.print("[dim]Recent workspaces:[/dim]")
+            for i, r in enumerate(recent, 1):
+                console.print(f"  [cyan]{i}[/cyan]  {r}")
+            console.print()
+
+        console.print(
+            "  [cyan]n[/cyan]  Create a new workspace\n"
+            "  [cyan]p[/cyan]  Enter a path manually\n"
+            "  [cyan]c[/cyan]  Cancel\n"
+        )
+        choice = console.input("[bold]Choice: [/bold]").strip().lower()
+
+        if choice in ("c", ""):
+            info("Cancelled")
+            return
+
+        if recent and choice.isdigit() and 1 <= int(choice) <= len(recent):
+            self._switch_workspace(recent[int(choice) - 1])
+            return
+
+        if choice == "p":
+            raw = console.input("[bold]Enter path: [/bold]").strip()
+            if not raw:
+                error("No path entered.")
+                return
+            self._switch_workspace(raw)
+            return
+
+        if choice == "n":
+            name = console.input(
+                "[bold]Directory name [/bold][dim](created in ~/terraai-workspaces/): [/dim]"
+            ).strip()
+            if not name:
+                error("No name entered.")
+                return
+            self._switch_workspace(str(Path.home() / "terraai-workspaces" / name))
+            return
+
+        error(f"Unknown choice: {choice}")
+
+    def _list_workspaces(self) -> None:
+        from main import _recent_workspaces
+        from rich.table import Table
+        from rich import box
+
+        recent = _recent_workspaces(limit=10)
+        if not recent:
+            info("No recent workspaces recorded yet.")
+            return
+
+        t = Table(box=box.SIMPLE, header_style="bold cyan")
+        t.add_column("")
+        t.add_column("Path")
+        for r in recent:
+            marker = "➤" if r == self.config.workspace_dir else ""
+            t.add_row(marker, r)
+        console.print(t)
+        console.print("[dim]Use /workspace <path>, /workspace new <name>, or /workspace to pick[/dim]")
+
     def _prompt_text(self) -> HTML:
         provider_icon = PROVIDER_ICONS.get(self.config.default_provider, "🌐")
         workspace_name = Path(self.config.workspace_dir).name
@@ -239,13 +337,20 @@ class TerraAISession:
 
         elif command == "/workspace":
             if not arg:
-                error("Usage: /workspace <path>")
+                self._workspace_picker()
                 return
-            self.config.workspace_dir = str(Path(arg).expanduser().resolve())
-            self.config.save()
-            self.workspace = WorkspaceManager(self.config.workspace_dir)
-            self.executor = TerraformExecutor(self.config.workspace_dir, self.config.terraform_bin)
-            success(f"Workspace: {self.config.workspace_dir}")
+            sub = arg.split(maxsplit=1)
+            if sub[0].lower() in ("new", "create"):
+                if len(sub) < 2 or not sub[1].strip():
+                    error("Usage: /workspace new <name>")
+                    return
+                new_path = Path.home() / "terraai-workspaces" / sub[1].strip()
+                self._switch_workspace(str(new_path))
+                return
+            self._switch_workspace(arg)
+
+        elif command == "/workspaces":
+            self._list_workspaces()
 
         elif command == "/files":
             files = self.workspace.list_files()

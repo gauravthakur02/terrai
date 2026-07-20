@@ -526,7 +526,10 @@ ollama pull codellama          # download the model (~4 GB)
 | Command | Description |
 |---------|-------------|
 | `/model <name>` | Switch AI model mid-session |
-| `/workspace <path>` | Switch workspace directory |
+| `/workspace` | Interactive picker — switch to a recent workspace, create a new one, or enter a path |
+| `/workspace <path>` | Switch straight to a workspace directory (created if it doesn't exist) |
+| `/workspace new <name>` | Create a new workspace under `~/terraai-workspaces/` and switch to it |
+| `/workspaces` | List recent workspaces |
 | `/config` | Show current configuration |
 | `/providers` | List supported Terraform providers |
 | `/models` | List all supported AI models |
