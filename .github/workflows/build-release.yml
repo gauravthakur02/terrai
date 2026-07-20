@@ -153,10 +153,16 @@ jobs:
 
       - name: Smoke test — imports, encoding, data files
         shell: bash
+        env:
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: utf-8
         run: ./release/${{ matrix.binary }} smoke
 
       - name: Non-interactive commands
         shell: bash
+        env:
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: utf-8
         run: |
           ./release/${{ matrix.binary }} models
           ./release/${{ matrix.binary }} providers
@@ -164,6 +170,9 @@ jobs:
       - name: Wizard stdin test
         shell: bash
         timeout-minutes: 2
+        env:
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: utf-8
         run: |
           # Pipe wizard answers: new-dir, name, skip-git, ollama(3), skip-provider, local-backend, quit
           printf 'n\nci-smoke\ns\n3\ns\n1\n/quit\n' \

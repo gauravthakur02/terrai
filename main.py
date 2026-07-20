@@ -6,6 +6,21 @@ import os
 from pathlib import Path
 from typing import Optional
 
+# Force UTF-8 output on Windows so Rich can render emoji/unicode to the console.
+# Must run before any Rich/typer imports.
+if sys.platform == 'win32':
+    try:
+        import ctypes
+        ctypes.windll.kernel32.SetConsoleOutputCP(65001)
+        ctypes.windll.kernel32.SetConsoleCP(65001)
+    except Exception:
+        pass
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 import typer
 from rich.table import Table
 from rich.panel import Panel
