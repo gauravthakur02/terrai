@@ -474,6 +474,88 @@ def list_providers() -> None:
     console.print(t)
 
 
+@app.command("smoke")
+def smoke_test() -> None:
+    """Self-test: verify binary bundle integrity (imports, encoding, data files). Exits 0 on pass."""
+    import tempfile
+    import json as _json
+    import pathlib as _pathlib
+
+    results: list[tuple[str, bool, str]] = []
+
+    def check(label: str, fn) -> None:
+        try:
+            fn()
+            results.append((label, True, ""))
+        except Exception as exc:
+            results.append((label, False, str(exc)))
+
+    # imports — catches missing PyInstaller-bundled modules
+    for mod in [
+        "config", "ai", "setup", "terraform", "vcs", "state",
+        "ui", "providers", "session",
+        "litellm", "tiktoken", "yaml", "hcl2",
+        "pydantic", "prompt_toolkit", "rich", "keyring",
+    ]:
+        check(f"import {mod}", lambda m=mod: __import__(m))
+
+    # tiktoken BPE files — bundled in tiktoken_cache/
+    def _tiktoken() -> None:
+        import tiktoken
+        for name in ("cl100k_base", "o200k_base"):
+            enc = tiktoken.get_encoding(name)
+            assert enc.encode("hello world"), f"{name} returned empty tokens"
+    check("tiktoken BPE encode (cl100k_base, o200k_base)", _tiktoken)
+
+    # litellm JSON data — bundled via collect_data_files
+    def _litellm() -> None:
+        import litellm
+        assert litellm.model_list is not None
+    check("litellm model list loaded", _litellm)
+
+    # UTF-8 write/read with emoji — catches Windows cp1252 charmap errors
+    def _encoding() -> None:
+        tmp = _pathlib.Path(tempfile.mktemp(suffix=".json"))
+        data = {"emoji": "✅ 🌍 ⚙️", "accents": "héllo wörld ñoño"}
+        tmp.write_text(_json.dumps(data), encoding="utf-8")
+        assert _json.loads(tmp.read_text(encoding="utf-8")) == data
+        tmp.unlink()
+    check("UTF-8 write/read (emoji + accents)", _encoding)
+
+    # config model_dump — catches misplaced encoding= kwarg inside model_dump()
+    def _config_dump() -> None:
+        from config import TerraAIConfig as _Cfg
+        d = _Cfg().model_dump(exclude_none=True)
+        assert isinstance(d, dict)
+    check("TerraAIConfig.model_dump(exclude_none=True)", _config_dump)
+
+    # hcl2 parse — exercises the bundled lark grammar
+    def _hcl2() -> None:
+        import hcl2, io
+        hcl2.load(io.StringIO('resource "null_resource" "x" { triggers = {} }'))
+    check("hcl2 parse", _hcl2)
+
+    # print results
+    console.print()
+    failed = 0
+    for label, ok, err in results:
+        if ok:
+            console.print(f"  [green]✓[/green]  {label}")
+        else:
+            console.print(f"  [red]✗[/red]  {label}")
+            console.print(f"      [dim red]{err}[/dim red]")
+            failed += 1
+
+    console.print()
+    total = len(results)
+    if failed == 0:
+        console.print(f"[bold green]All {total} checks passed.[/bold green]")
+        raise typer.Exit(0)
+    else:
+        console.print(f"[bold red]{failed}/{total} checks failed.[/bold red]")
+        raise typer.Exit(1)
+
+
 def _show_config(config: TerraAIConfig) -> None:
     t = Table(box=box.ROUNDED, show_header=False)
     t.add_column("Setting", style="bold cyan", width=20)

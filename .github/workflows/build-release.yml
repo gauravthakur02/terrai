@@ -121,8 +121,62 @@ jobs:
           path: release/
           retention-days: 7
 
-  release:
+  test:
     needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: macos-arm64
+            binary: terraai-macos-arm64
+          - os: ubuntu-22.04
+            platform: linux-x64
+            binary: terraai-linux-x64
+          - os: windows-2022
+            platform: windows-x64
+            binary: terraai-windows-x64.exe
+
+    runs-on: ${{ matrix.os }}
+    name: Test (${{ matrix.platform }})
+
+    steps:
+      - name: Download binary
+        uses: actions/download-artifact@v4
+        with:
+          name: terraai-${{ matrix.platform }}
+          path: ./release
+
+      - name: Mark executable (Unix)
+        if: runner.os != 'Windows'
+        run: chmod +x ./release/${{ matrix.binary }}
+
+      - name: Smoke test — imports, encoding, data files
+        shell: bash
+        run: ./release/${{ matrix.binary }} smoke
+
+      - name: Non-interactive commands
+        shell: bash
+        run: |
+          ./release/${{ matrix.binary }} models
+          ./release/${{ matrix.binary }} providers
+
+      - name: Wizard stdin test
+        shell: bash
+        timeout-minutes: 2
+        run: |
+          # Pipe wizard answers: new-dir, name, skip-git, ollama(3), skip-provider, local-backend, quit
+          printf 'n\nci-smoke\ns\n3\ns\n1\n/quit\n' \
+            | ./release/${{ matrix.binary }} || true
+          # If the wizard crashed, config.yaml will not have been written
+          if ! test -f ~/.terraai/config.yaml; then
+            echo "FAIL: wizard did not save config — likely crashed before save()"
+            exit 1
+          fi
+          echo "Wizard OK — config written to ~/.terraai/config.yaml"
+
+  release:
+    needs: [build, test]
     runs-on: ubuntu-22.04
     if: startsWith(github.ref, 'refs/tags/')
 
