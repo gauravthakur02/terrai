@@ -29,11 +29,12 @@ class SetupWizard:
 
     # (model_id, provider, note, env_var_or_None, signup_url)
     FREE_MODELS = [
-        ("gemini/gemini-2.0-flash",           "Google",  "Recommended — large context, fast", "GEMINI_API_KEY", "aistudio.google.com/app/apikey"),
-        ("gemini/gemini-2.5-flash",           "Google",  "Latest flash model",                "GEMINI_API_KEY", "aistudio.google.com/app/apikey"),
-        ("groq/llama-3.3-70b-versatile",      "Groq",    "Fast + very capable",               "GROQ_API_KEY",   "console.groq.com/keys"),
-        ("groq/llama-3.1-8b-instant",         "Groq",    "Ultra fast, lightweight",           "GROQ_API_KEY",   "console.groq.com/keys"),
-        ("groq/deepseek-r1-distill-llama-70b","Groq",    "Strong reasoning",                  "GROQ_API_KEY",   "console.groq.com/keys"),
+        ("gemini/gemini-3.1-flash-lite",      "Google",  "Recommended — Gemini 3.1, fast & free", "GEMINI_API_KEY", "aistudio.google.com/app/apikey"),
+        ("gemini/gemini-3.5-flash",           "Google",  "Gemini 3.5 flash — latest",             "GEMINI_API_KEY", "aistudio.google.com/app/apikey"),
+        ("gemini/gemini-2.0-flash",           "Google",  "Gemini 2.0 flash — large context",      "GEMINI_API_KEY", "aistudio.google.com/app/apikey"),
+        ("groq/llama-3.3-70b-versatile",      "Groq",    "Fast + very capable",                   "GROQ_API_KEY",   "console.groq.com/keys"),
+        ("groq/llama-3.1-8b-instant",         "Groq",    "Ultra fast, lightweight",               "GROQ_API_KEY",   "console.groq.com/keys"),
+        ("groq/deepseek-r1-distill-llama-70b","Groq",    "Strong reasoning",                      "GROQ_API_KEY",   "console.groq.com/keys"),
     ]
     PAID_MODELS = [
         ("gpt-4o",                    "OpenAI",      "Best overall quality",      "OPENAI_API_KEY",      "platform.openai.com/api-keys"),

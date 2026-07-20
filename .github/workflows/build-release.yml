@@ -174,9 +174,9 @@ jobs:
           PYTHONUTF8: "1"
           PYTHONIOENCODING: utf-8
         run: |
-          # Pipe wizard answers: new-dir, name, skip-git, ollama(14), skip-provider, local-backend, quit
-          # Row 14 = ollama/llama3.2 (no API key step): 5 free + 8 paid + first local
-          printf 'n\nci-smoke\ns\n14\ns\n1\n/quit\n' \
+          # Pipe wizard answers: new-dir, name, skip-git, ollama(15), skip-provider, local-backend, quit
+          # Row 15 = ollama/llama3.2 (no API key step): 6 free + 8 paid + first local
+          printf 'n\nci-smoke\ns\n15\ns\n1\n/quit\n' \
             | ./release/${{ matrix.binary }} || true
           # If the wizard crashed, config.yaml will not have been written
           if ! test -f ~/.terraai/config.yaml; then

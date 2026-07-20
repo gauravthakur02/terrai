@@ -2,13 +2,29 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from typing import Generator, Optional
 import litellm
 from litellm import completion
+from litellm.exceptions import RateLimitError, ServiceUnavailableError
 from .prompts import SYSTEM_PROMPT
 from config.settings import TerraAIConfig
 
 litellm.suppress_debug_info = True
+
+# Gemini model aliases that must be resolved to a stable v1beta path litellm
+# can construct correctly.  Keys are the short names users/configs may specify;
+# values are the exact model-ID strings that resolve correctly via litellm's
+# Google AI Studio route.
+_GEMINI_ALIAS_MAP: dict[str, str] = {
+    # Deprecated model paths → working equivalents
+    "gemini/gemini-2.5-flash":     "gemini/gemini-3.1-flash-lite",
+    "gemini/gemini-2.5-pro":       "gemini/gemini-pro-latest",
+    "gemini/gemini-2.5-flash-8b":  "gemini/gemini-3.1-flash-lite",
+    "gemini/gemini-flash-latest":  "gemini/gemini-3.1-flash-lite",
+    "gemini/gemini-2.0-flash":     "gemini/gemini-3.1-flash-lite",
+    "gemini/gemini-2.0-flash-lite":"gemini/gemini-3.1-flash-lite",
+}
 
 
 class AIResponse:
@@ -55,6 +71,25 @@ class TerraAIClient:
 
         if self.config.api_base:
             os.environ["OPENAI_API_BASE"] = self.config.api_base
+
+    def _resolve_model(self) -> str:
+        """Return the effective litellm model string, resolving deprecated aliases."""
+        return _GEMINI_ALIAS_MAP.get(self.config.model, self.config.model)
+
+    @staticmethod
+    def _completion_with_retry(max_attempts: int = 4, **kwargs) -> object:
+        """Call litellm.completion with exponential back-off on 429/503."""
+        delay = 5.0
+        for attempt in range(1, max_attempts + 1):
+            try:
+                return completion(**kwargs)
+            except (RateLimitError, ServiceUnavailableError) as exc:
+                if attempt == max_attempts:
+                    raise
+                wait = delay * (2 ** (attempt - 1))
+                print(f"\n[TerraAI] Rate-limited / service busy — retrying in {int(wait)}s "
+                      f"(attempt {attempt}/{max_attempts})…")
+                time.sleep(wait)
 
     def reset_history(self) -> None:
         self._history = []
@@ -143,8 +178,9 @@ class TerraAIClient:
         messages.extend(self._history)
         messages.append({"role": "user", "content": user_message})
 
+        model = self._resolve_model()
         kwargs = {
-            "model": self.config.model,
+            "model": model,
             "messages": messages,
             "temperature": self.config.temperature,
             "stream": True,
@@ -161,7 +197,7 @@ class TerraAIClient:
             kwargs["api_key"] = key
 
         full_response = ""
-        stream = completion(**kwargs)
+        stream = self._completion_with_retry(**kwargs)
         for chunk in stream:
             delta = chunk.choices[0].delta.content or ""
             full_response += delta
@@ -185,8 +221,9 @@ class TerraAIClient:
         messages.extend(self._history)
         messages.append({"role": "user", "content": user_message})
 
+        model = self._resolve_model()
         kwargs = {
-            "model": self.config.model,
+            "model": model,
             "messages": messages,
             "temperature": self.config.temperature,
         }
@@ -200,7 +237,7 @@ class TerraAIClient:
         if key:
             kwargs["api_key"] = key
 
-        resp = completion(**kwargs)
+        resp = self._completion_with_retry(**kwargs)
         raw = resp.choices[0].message.content.strip()
 
         self._history.append({"role": "user", "content": user_message})
