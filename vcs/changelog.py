@@ -30,7 +30,7 @@ class InfrastructureChangelog:
         return []
 
     def _save_chronicle(self, entries: list[dict]) -> None:
-        self._chronicle_path.write_text(json.dumps(entries, indent=2, encoding='utf-8'))
+        self._chronicle_path.write_text(json.dumps(entries, indent=2), encoding='utf-8')
 
     def record_change(
         self,

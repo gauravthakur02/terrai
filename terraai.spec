@@ -7,6 +7,9 @@ import sys
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
+# Make local packages visible to collect_submodules at build time
+sys.path.insert(0, str(Path('').resolve()))
+
 block_cipher = None
 
 # Bundle all litellm data files (JSON/YAML model pricing + config)
@@ -19,13 +22,13 @@ tiktoken_datas = [('tiktoken_cache/*.tiktoken', 'tiktoken_cache')]
 internal_hidden = (
     collect_submodules('config')
     + collect_submodules('ai')
-    + collect_submodules('session')
     + collect_submodules('setup')
     + collect_submodules('terraform')
     + collect_submodules('vcs')
     + collect_submodules('state')
     + collect_submodules('ui')
     + collect_submodules('providers')
+    + ['session']  # single-file module, not a package
 )
 
 a = Analysis(
