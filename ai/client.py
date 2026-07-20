@@ -153,6 +153,10 @@ class TerraAIClient:
         if self.config.api_base and self.config.model.startswith("ollama"):
             kwargs["api_base"] = self.config.api_base or "http://localhost:11434"
 
+        key = self.config.get_api_key()
+        if key:
+            kwargs["api_key"] = key
+
         full_response = ""
         stream = completion(**kwargs)
         for chunk in stream:
@@ -185,6 +189,10 @@ class TerraAIClient:
         }
         if self.config.api_base:
             kwargs["api_base"] = self.config.api_base
+
+        key = self.config.get_api_key()
+        if key:
+            kwargs["api_key"] = key
 
         resp = completion(**kwargs)
         raw = resp.choices[0].message.content.strip()

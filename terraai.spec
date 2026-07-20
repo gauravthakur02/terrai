@@ -21,6 +21,12 @@ hcl2_datas = collect_data_files('hcl2')
 # Bundle tiktoken BPE encoding files (pre-downloaded, avoids runtime internet fetch)
 tiktoken_datas = [('tiktoken_cache/*.tiktoken', 'tiktoken_cache')]
 
+# Bundle google-generativeai data (needed by litellm for gemini/ prefix models)
+try:
+    genai_datas = collect_data_files('google.generativeai')
+except Exception:
+    genai_datas = []
+
 # Collect all submodules of internal packages so PyInstaller doesn't miss any
 internal_hidden = (
     collect_submodules('config')
@@ -38,11 +44,13 @@ a = Analysis(
     ['main.py'],
     pathex=[str(Path('').resolve())],
     binaries=[],
-    datas=litellm_datas + hcl2_datas + tiktoken_datas,
+    datas=litellm_datas + hcl2_datas + tiktoken_datas + genai_datas,
     hiddenimports=[
         # LiteLLM providers
         'litellm',
         'google.generativeai',
+        'google.generativeai.types',
+        'google.generativeai.generative_models',
         'google.ai.generativelanguage',
         'litellm.utils',
         'litellm.main',

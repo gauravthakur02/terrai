@@ -62,6 +62,7 @@ HELP_TEXT = """
 [bold]Config[/bold]
   [bold]/config[/bold]                Show current configuration
   [bold]/model <name>[/bold]          Switch AI model (e.g. /model gpt-4o)
+  [bold]/apikey <key>[/bold]          Update stored API key (use after revoking/rotating a key)
   [bold]/workspace <path>[/bold]      Switch workspace directory
   [bold]/providers[/bold]             List supported Terraform providers
   [bold]/models[/bold]                List supported AI models
@@ -78,6 +79,7 @@ HELP_TEXT = """
 
 SUPPORTED_MODELS_TABLE = {
     "Free Models": [
+        ("gemini/gemini-2.0-flash", "Google", "Free tier — recommended"),
         ("gemini/gemini-1.5-flash", "Google", "Free tier"),
         ("gemini/gemini-1.5-pro", "Google", "Free tier"),
         ("groq/llama3-70b-8192", "Groq", "Free tier"),
@@ -564,6 +566,17 @@ class TerraAISession:
                 console.print(t)
             console.print("[dim]Usage: /model <model-id>[/dim]")
 
+        elif command == "/apikey":
+            if not arg:
+                error("Usage: /apikey <key>")
+                info("Tip: Get a free Gemini key at https://aistudio.google.com/app/apikey")
+                return
+            self.config.api_key = arg
+            self.config.save()
+            self.client = TerraAIClient(self.config)
+            success("API key updated and saved.")
+            info(f"Model: {self.config.model}")
+
         elif command in ("/exit", "/quit", "/q"):
             console.print("[dim]Goodbye! 👋[/dim]")
             sys.exit(0)
@@ -770,6 +783,21 @@ def _handle_ai_error(exc: Exception, model: str) -> None:
 
     # Model not found on provider
     if any(k in msg.lower() for k in ("model not found", "no such model", "does not exist", "404")):
+        # Gemini 404 almost always means a revoked or invalid API key
+        if model.startswith("gemini"):
+            console.print(Panel(
+                f"[bold red]Gemini request failed:[/bold red] [white]{model}[/white]\n\n"
+                "This usually means your API key is [bold]expired or revoked[/bold].\n\n"
+                "Get a fresh key at:\n"
+                "  [cyan]https://aistudio.google.com/app/apikey[/cyan]\n\n"
+                "Then update TerraAI in-session:\n"
+                "  [bold green]/apikey YOUR_NEW_GEMINI_KEY[/bold green]\n\n"
+                "Or set as env var before starting:\n"
+                "  [bold green]export GEMINI_API_KEY=YOUR_KEY[/bold green]",
+                title="[bold red]❌ Gemini API Key Error[/bold red]",
+                border_style="red",
+            ))
+            return
         console.print(Panel(
             f"[bold red]Model not found:[/bold red] [white]{model}[/white]\n\n"
             "Check the model ID is correct. Run:\n"
