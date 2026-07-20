@@ -27,19 +27,31 @@ _TERRAAI_SRC_DIR = Path(__file__).parent.parent.resolve()
 class SetupWizard:
     """Interactive first-run wizard. Returns a fully configured TerraAIConfig."""
 
+    # (model_id, provider, note, env_var_or_None, signup_url)
     FREE_MODELS = [
-        ("groq/llama3-70b-8192",    "Groq",    "Free tier — fastest option",     "GROQ_API_KEY",   "console.groq.com/keys"),
-        ("gemini/gemini-2.0-flash", "Google",  "Free tier — recommended",        "GEMINI_API_KEY", "aistudio.google.com/app/apikey"),
-        ("ollama/codellama",        "Ollama",  "Local — no key, needs 8 GB RAM", None,             "ollama.com"),
-        ("ollama/llama3",           "Ollama",  "Local — general purpose",        None,             "ollama.com"),
+        ("gemini/gemini-2.0-flash",           "Google",  "Recommended — large context, fast", "GEMINI_API_KEY", "aistudio.google.com/app/apikey"),
+        ("gemini/gemini-2.5-flash",           "Google",  "Latest flash model",                "GEMINI_API_KEY", "aistudio.google.com/app/apikey"),
+        ("groq/llama-3.3-70b-versatile",      "Groq",    "Fast + very capable",               "GROQ_API_KEY",   "console.groq.com/keys"),
+        ("groq/llama-3.1-8b-instant",         "Groq",    "Ultra fast, lightweight",           "GROQ_API_KEY",   "console.groq.com/keys"),
+        ("groq/deepseek-r1-distill-llama-70b","Groq",    "Strong reasoning",                  "GROQ_API_KEY",   "console.groq.com/keys"),
     ]
     PAID_MODELS = [
-        ("gpt-4o",                  "OpenAI",     "Best overall quality",        "OPENAI_API_KEY",      "platform.openai.com/api-keys"),
-        ("gpt-4o-mini",             "OpenAI",     "Fast & cheap",                "OPENAI_API_KEY",      "platform.openai.com/api-keys"),
-        ("claude-sonnet-4-6",       "Anthropic",  "Strong HCL reasoning",        "ANTHROPIC_API_KEY",   "console.anthropic.com/settings/keys"),
-        ("claude-haiku-4-5-20251001","Anthropic", "Fast Anthropic model",        "ANTHROPIC_API_KEY",   "console.anthropic.com/settings/keys"),
-        ("groq/llama3-70b-8192",    "Groq",       "Fast inference, paid plan",   "GROQ_API_KEY",        "console.groq.com/keys"),
-        ("azure/gpt-4o",            "Azure OpenAI","Enterprise Azure-hosted",    "AZURE_OPENAI_API_KEY","portal.azure.com"),
+        ("gpt-4o",                    "OpenAI",      "Best overall quality",      "OPENAI_API_KEY",      "platform.openai.com/api-keys"),
+        ("gpt-4o-mini",               "OpenAI",      "Fast & affordable",         "OPENAI_API_KEY",      "platform.openai.com/api-keys"),
+        ("gpt-4.1",                   "OpenAI",      "Latest GPT-4 series",       "OPENAI_API_KEY",      "platform.openai.com/api-keys"),
+        ("gpt-4.1-mini",              "OpenAI",      "Latest, fast & cheap",      "OPENAI_API_KEY",      "platform.openai.com/api-keys"),
+        ("claude-sonnet-5",           "Anthropic",   "Strong HCL reasoning",      "ANTHROPIC_API_KEY",   "console.anthropic.com/settings/keys"),
+        ("claude-opus-4-8",           "Anthropic",   "Most capable Anthropic",    "ANTHROPIC_API_KEY",   "console.anthropic.com/settings/keys"),
+        ("claude-haiku-4-5-20251001", "Anthropic",   "Fast & cheap Anthropic",    "ANTHROPIC_API_KEY",   "console.anthropic.com/settings/keys"),
+        ("azure/gpt-4o",              "Azure OpenAI","Enterprise Azure-hosted",   "AZURE_OPENAI_API_KEY","portal.azure.com"),
+    ]
+    LOCAL_MODELS = [
+        ("ollama/llama3.2",     "Ollama", "Meta Llama 3.2 · 3B · very fast",    None, "ollama.com"),
+        ("ollama/llama3.1",     "Ollama", "Meta Llama 3.1 · 8B · balanced",     None, "ollama.com"),
+        ("ollama/qwen2.5-coder","Ollama", "Qwen 2.5 Coder · 7B · code-focused", None, "ollama.com"),
+        ("ollama/qwen3.5",      "Ollama", "Qwen 3.5 · strong reasoning",        None, "ollama.com"),
+        ("ollama/mistral",      "Ollama", "Mistral 7B · general purpose",       None, "ollama.com"),
+        ("ollama/codellama",    "Ollama", "Code Llama · code generation",       None, "ollama.com"),
     ]
 
     def __init__(self, console, config: TerraAIConfig, src_dir: Optional[Path] = None):
@@ -251,33 +263,62 @@ class SetupWizard:
         t.add_column("Notes")
         t.add_column("Requires")
 
-        rows = []
+        rows = []  # (model, prov, note, tier_tag, env_var)
+
+        t.add_row("", "[bold]── Free Models (API key, free tier) ──[/bold]", "", "", "", style="dim")
         for model, prov, note, env, _ in self.FREE_MODELS:
-            rows.append((model, prov, note, "[green]Free[/green]" if env else "[dim]Local[/dim]", env))
+            rows.append((model, prov, note, "[green]Free[/green]", env))
+            t.add_row(str(len(rows)), model, prov, f"[green]Free[/green] — {note}", env or "[dim]none[/dim]")
+
+        t.add_row("", "[bold]── Paid Models ──[/bold]", "", "", "", style="dim")
         for model, prov, note, env, _ in self.PAID_MODELS:
             rows.append((model, prov, note, "[yellow]Paid[/yellow]", env))
+            t.add_row(str(len(rows)), model, prov, f"[yellow]Paid[/yellow] — {note}", env or "[dim]none[/dim]")
 
-        for i, (model, prov, note, tier, env) in enumerate(rows, 1):
-            t.add_row(
-                str(i), model, prov,
-                f"{tier} — {note}",
-                env or "[dim]none[/dim]",
-            )
+        t.add_row("", "[bold]── Local Models (Ollama — no API key) ──[/bold]", "", "", "", style="dim")
+        for model, prov, note, env, _ in self.LOCAL_MODELS:
+            rows.append((model, prov, note, "[blue]Local[/blue]", env))
+            t.add_row(str(len(rows)), model, prov, f"[blue]Local[/blue] — {note}", "[dim]none[/dim]")
+
         self.console.print(t)
-        self.console.print()
+        self.console.print(
+            "  [cyan]c[/cyan]  Enter a custom model ID "
+            "[dim](any LiteLLM provider — e.g. mistral/mistral-large-latest)[/dim]\n"
+        )
 
         current_idx = next(
             (i + 1 for i, (m, *_) in enumerate(rows) if m == self.config.model), None
         )
-        prompt = f"[bold]Choose model number [/bold][dim](current: {self.config.model}"
+        prompt = f"[bold]Choose number or 'c' for custom [/bold][dim](current: {self.config.model}"
         if current_idx:
-            prompt += f", Enter to keep"
+            prompt += ", Enter to keep"
         prompt += "): [/dim]"
 
-        raw = self.console.input(prompt).strip()
-        if raw.isdigit() and 1 <= int(raw) <= len(rows):
-            chosen = rows[int(raw) - 1]
-            self.config.model = chosen[0]
+        raw = self.console.input(prompt).strip().lower()
+
+        if raw == "c":
+            custom_id = self.console.input(
+                "[bold]LiteLLM model ID: [/bold][dim](e.g. mistral/mistral-large-latest): [/dim]"
+            ).strip()
+            if custom_id:
+                self.config.model = custom_id
+            self.console.print(f"[green]✓ Model:[/green] {self.config.model}\n")
+            api_base = self.console.input(
+                "[bold]API base URL [/bold][dim](blank for default — e.g. http://localhost:11434 for Ollama): [/dim]"
+            ).strip()
+            if api_base:
+                self.config.api_base = api_base
+            key = self.console.input(
+                "[bold]API key [/bold][dim](blank to use env var or for local models): [/dim]"
+            ).strip()
+            if key:
+                self.config.api_key = key
+                self.console.print("[green]✓ API key saved.[/green]\n")
+            else:
+                self.console.print("[dim]No key set — using env var if available.[/dim]\n")
+            return
+        elif raw.isdigit() and 1 <= int(raw) <= len(rows):
+            self.config.model = rows[int(raw) - 1][0]
         elif not raw and self.config.model:
             pass  # keep current
         else:
@@ -286,18 +327,18 @@ class SetupWizard:
         self.console.print(f"[green]✓ Model:[/green] {self.config.model}\n")
 
         # API key setup
-        all_models = list(self.FREE_MODELS) + list(self.PAID_MODELS)
+        all_models = list(self.FREE_MODELS) + list(self.PAID_MODELS) + list(self.LOCAL_MODELS)
         model_info = next(
             (m for m in all_models if m[0] == self.config.model), None
         )
         env_var = model_info[3] if model_info else None
 
         if env_var is None:
-            # Ollama — no key
+            model_name = self.config.model.split('/', 1)[-1]
             self.console.print(
                 "[dim]Ollama runs locally — no API key needed.\n"
                 "Make sure Ollama is running: [green]ollama serve[/green]\n"
-                f"Pull model if needed: [green]ollama pull {self.config.model.split('/', 1)[-1]}[/green][/dim]\n"
+                f"Pull model if needed: [green]ollama pull {model_name}[/green][/dim]\n"
             )
             return
 

@@ -257,19 +257,21 @@ def _print_free_models() -> None:
     t.add_column("Key required?")
 
     free = [
-        ("groq/llama3-70b-8192",    "Groq",   "export GROQ_API_KEY=...",              "Free tier at console.groq.com"),
-        ("groq/mixtral-8x7b-32768", "Groq",   "export GROQ_API_KEY=...",              "Free tier at console.groq.com"),
-        ("gemini/gemini-2.0-flash", "Google", "export GEMINI_API_KEY=...",            "Free tier at aistudio.google.com"),
-        ("gemini/gemini-2.5-pro",   "Google", "export GEMINI_API_KEY=...",            "Free tier at aistudio.google.com"),
-        ("ollama/llama3",           "Ollama", "ollama serve && ollama pull llama3",   "❌ No key needed (local)"),
-        ("ollama/codellama",        "Ollama", "ollama serve && ollama pull codellama","❌ No key needed (local)"),
-        ("ollama/mistral",          "Ollama", "ollama serve && ollama pull mistral",  "❌ No key needed (local)"),
+        ("gemini/gemini-2.0-flash",           "Google", "export GEMINI_API_KEY=...",                        "Free tier at aistudio.google.com"),
+        ("gemini/gemini-2.5-flash",           "Google", "export GEMINI_API_KEY=...",                        "Free tier at aistudio.google.com"),
+        ("groq/llama-3.3-70b-versatile",      "Groq",   "export GROQ_API_KEY=...",                          "Free tier at console.groq.com"),
+        ("groq/llama-3.1-8b-instant",         "Groq",   "export GROQ_API_KEY=...",                          "Free tier at console.groq.com"),
+        ("groq/deepseek-r1-distill-llama-70b","Groq",   "export GROQ_API_KEY=...",                          "Free tier at console.groq.com"),
+        ("ollama/llama3.2",                   "Ollama", "ollama serve && ollama pull llama3.2",              "No key needed (local)"),
+        ("ollama/qwen2.5-coder",              "Ollama", "ollama serve && ollama pull qwen2.5-coder",         "No key needed (local)"),
+        ("ollama/mistral",                    "Ollama", "ollama serve && ollama pull mistral",               "No key needed (local)"),
     ]
     for row in free:
         t.add_row(*row)
     console.print(t)
-    console.print("\n[dim]Launch with:[/dim] [bold]./terraai --model ollama/codellama[/bold]")
-    console.print("[dim]Or Groq:    [/dim] [bold]GROQ_API_KEY=xxx ./terraai --model groq/llama3-70b-8192[/bold]")
+    console.print("\n[dim]Launch with:[/dim] [bold]./terraai --model ollama/llama3.2[/bold]")
+    console.print("[dim]Or Groq:    [/dim] [bold]GROQ_API_KEY=xxx ./terraai --model groq/llama-3.3-70b-versatile[/bold]")
+    console.print("[dim]Or Gemini:  [/dim] [bold]GEMINI_API_KEY=AIza... ./terraai --model gemini/gemini-2.0-flash[/bold]")
 
 
 app = typer.Typer(

@@ -78,23 +78,33 @@ HELP_TEXT = """
 """
 
 SUPPORTED_MODELS_TABLE = {
-    "Free Models": [
-        ("gemini/gemini-2.0-flash", "Google", "Free tier — recommended"),
-        ("gemini/gemini-1.5-flash", "Google", "Free tier (older)"),
-        ("gemini/gemini-1.5-pro", "Google", "Free tier (older)"),
-        ("groq/llama3-70b-8192", "Groq", "Free tier"),
-        ("groq/mixtral-8x7b-32768", "Groq", "Free tier"),
-        ("ollama/llama3", "Ollama", "Local, free"),
-        ("ollama/codellama", "Ollama", "Local, free"),
-        ("ollama/mistral", "Ollama", "Local, free"),
+    "Free Models (API key, free tier)": [
+        ("gemini/gemini-2.0-flash",           "Google",  "Recommended — large context, fast"),
+        ("gemini/gemini-2.5-flash",           "Google",  "Latest flash — best free Gemini"),
+        ("groq/llama-3.3-70b-versatile",      "Groq",    "Fast + very capable"),
+        ("groq/llama-3.1-8b-instant",         "Groq",    "Ultra fast, lightweight"),
+        ("groq/deepseek-r1-distill-llama-70b","Groq",    "Strong reasoning, free tier"),
     ],
     "Paid Models": [
-        ("gpt-4o", "OpenAI", "Best overall"),
-        ("gpt-4o-mini", "OpenAI", "Fast & cheap"),
-        ("claude-sonnet-4-6", "Anthropic", "Strong reasoning"),
-        ("claude-haiku-4-5-20251001", "Anthropic", "Fast & cheap"),
-        ("azure/gpt-4o", "Azure OpenAI", "Enterprise"),
-        ("groq/llama3-70b-8192", "Groq", "Fast inference"),
+        ("gpt-4o",                    "OpenAI",      "Best overall quality"),
+        ("gpt-4o-mini",               "OpenAI",      "Fast & affordable"),
+        ("gpt-4.1",                   "OpenAI",      "Latest GPT-4 series"),
+        ("gpt-4.1-mini",              "OpenAI",      "Latest, fast & cheap"),
+        ("claude-sonnet-5",           "Anthropic",   "Strong HCL reasoning"),
+        ("claude-opus-4-8",           "Anthropic",   "Most capable Anthropic"),
+        ("claude-haiku-4-5-20251001", "Anthropic",   "Fast & cheap Anthropic"),
+        ("azure/gpt-4o",              "Azure OpenAI","Enterprise Azure-hosted"),
+    ],
+    "Local Models (Ollama — no API key)": [
+        ("ollama/llama3.2",     "Ollama", "Meta Llama 3.2 · 3B · very fast"),
+        ("ollama/llama3.1",     "Ollama", "Meta Llama 3.1 · 8B · balanced"),
+        ("ollama/qwen2.5-coder","Ollama", "Qwen 2.5 Coder · 7B · code-focused"),
+        ("ollama/qwen3.5",      "Ollama", "Qwen 3.5 · strong reasoning"),
+        ("ollama/mistral",      "Ollama", "Mistral 7B · general purpose"),
+        ("ollama/codellama",    "Ollama", "Code Llama · code generation"),
+    ],
+    "Custom": [
+        ("<litellm-model-id>",  "Any",    "Any provider litellm supports — see /custom"),
     ],
 }
 
@@ -557,6 +567,8 @@ class TerraAISession:
             from rich.table import Table
             from rich import box
             for category, models in SUPPORTED_MODELS_TABLE.items():
+                if category == "Custom":
+                    continue  # printed as footer note below
                 t = Table(title=category, box=box.ROUNDED, show_header=True, header_style="bold cyan")
                 t.add_column("Model ID")
                 t.add_column("Provider")
@@ -564,7 +576,12 @@ class TerraAISession:
                 for m in models:
                     t.add_row(*m)
                 console.print(t)
-            console.print("[dim]Usage: /model <model-id>[/dim]")
+            console.print(
+                "\n[dim]Switch model:[/dim] [bold]/model <model-id>[/bold]\n"
+                "[dim]Custom model:[/dim] [bold]/model <any-litellm-id>[/bold]  "
+                "[dim]e.g. /model mistral/mistral-large-latest[/dim]\n"
+                "[dim]Update API key:[/dim] [bold]/apikey <key>[/bold]"
+            )
 
         elif command == "/apikey":
             if not arg:
