@@ -33,6 +33,19 @@ pip install -q --upgrade pip
 pip install -q -r requirements.txt
 pip install -q pyinstaller
 
+REM ── tiktoken BPE files ───────────────────────────────────────────────
+REM terraai.spec bundles these so tiktoken doesn't hit the network at
+REM runtime. CI fetches them in its own step (build-release.yml); local
+REM builds need the same files on disk before pyinstaller runs.
+IF NOT EXIST "tiktoken_cache" mkdir tiktoken_cache
+SET TIKTOKEN_BASE=https://openaipublic.blob.core.windows.net/encodings
+FOR %%N IN (r50k_base p50k_base cl100k_base o200k_base) DO (
+    IF NOT EXIST "tiktoken_cache\%%N.tiktoken" (
+        echo Downloading %%N.tiktoken ...
+        curl -fsSL "%TIKTOKEN_BASE%/%%N.tiktoken" -o "tiktoken_cache\%%N.tiktoken"
+    )
+)
+
 REM ── Build ─────────────────────────────────────────────────────────────
 echo.
 echo Building executable ...
