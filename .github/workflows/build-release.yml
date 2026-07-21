@@ -40,6 +40,11 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
 
+      - uses: actions/setup-go@v5
+        if: runner.os == 'Windows'
+        with:
+          go-version-file: launcher/go.mod
+
       - name: Install dependencies
         run: |
           pip install --upgrade pip
@@ -62,14 +67,20 @@ jobs:
       - name: Build binary (Windows)
         if: runner.os == 'Windows'
         shell: bash
-        run: pyinstaller terraai.spec --noconfirm --log-level WARN
+        # Onedir payload + self-extracting Go launcher instead of plain
+        # onefile — see scripts/package_windows.py. Onefile re-extracts its
+        # whole bundle on every single launch with no caching, which on
+        # Windows measured at 9-12s vs 1.5s for the same app run plain;
+        # this launcher pays that cost once (on first run only) and is
+        # near-instant on every run after.
+        run: python scripts/package_windows.py
 
       - name: Rename binary
         shell: bash
         run: |
           mkdir -p release
           if [ "${{ runner.os }}" = "Windows" ]; then
-            cp dist/terraai.exe "release/terraai-${{ matrix.platform }}.exe"
+            cp dist/terraai-windows-x64.exe "release/terraai-${{ matrix.platform }}.exe"
           else
             cp dist/terraai "release/terraai-${{ matrix.platform }}"
             chmod +x "release/terraai-${{ matrix.platform }}"
