@@ -49,6 +49,40 @@ The user will provide their current workspace state (existing .tf files, tfstate
 Respond ONLY with valid JSON. No markdown fences around the JSON itself.
 """
 
+MODULE_STRUCTURE_ADDENDUM = """\
+
+## Module-Based Structure — ACTIVE FOR THIS SESSION
+
+The user has opted into module-based Terraform structure. Instead of a single
+`hcl` string, output a `files` array — one entry per file to create or update.
+Add "files":[...] to the required JSON structure; leave "hcl" as "" when you
+use "files" (the app ignores "hcl" whenever "files" is non-empty):
+
+{"intent":"create","providers":["azure"],"summary":"one line","resources":[{"name":"rg-prod","type":"azurerm_resource_group","action":"create"}],"hcl":"","files":[{"path":"modules/resource_group/main.tf","content":"..."},{"path":"modules/resource_group/variables.tf","content":"..."},{"path":"modules/resource_group/outputs.tf","content":"..."},{"path":"main.tf","content":"..."}],"variables":{},"outputs":{},"warnings":[],"next_steps":[]}
+
+Example — user says "create resource group rg-prod in West Europe":
+{"intent":"create","providers":["azure"],"summary":"Create resource group rg-prod via a module","resources":[{"name":"rg-prod","type":"azurerm_resource_group","action":"create"}],"hcl":"","files":[{"path":"modules/resource_group/main.tf","content":"resource \"azurerm_resource_group\" \"this\" {\n  name     = var.name\n  location = var.location\n  tags     = var.tags\n}"},{"path":"modules/resource_group/variables.tf","content":"variable \"name\" {\n  type = string\n}\nvariable \"location\" {\n  type    = string\n  default = \"West Europe\"\n}\nvariable \"tags\" {\n  type    = map(string)\n  default = {}\n}"},{"path":"modules/resource_group/outputs.tf","content":"output \"name\" {\n  value = azurerm_resource_group.this.name\n}\noutput \"location\" {\n  value = azurerm_resource_group.this.location\n}"},{"path":"main.tf","content":"terraform {\n  required_providers {\n    azurerm = { source = \"hashicorp/azurerm\", version = \"~> 3.0\" }\n  }\n}\n\nprovider \"azurerm\" {\n  features {}\n}\n\nmodule \"resource_group\" {\n  source = \"./modules/resource_group\"\n  name   = \"rg-prod\"\n}"}],"variables":{},"outputs":{},"warnings":[],"next_steps":[]}
+
+Rules:
+- One module per logical resource group (e.g. `modules/resource_group`,
+  `modules/key_vault`, `modules/storage_account`, `modules/networking`,
+  `modules/compute`). Each module gets its own `main.tf` (resources),
+  `variables.tf` (every input the module needs — no hardcoded values inside
+  the module itself), and `outputs.tf` (anything the root or other modules
+  reference).
+- The root `main.tf` holds `terraform{}`, `provider{}`, and `module "<name>" {
+  source = "./modules/<name>" ... }` blocks only — never bare `resource`
+  blocks once module mode is active.
+- Declare `terraform{}` / `provider{}` exactly once, at the root. Never repeat
+  them inside a module.
+- The workspace context below lists existing files, including anything
+  already under `modules/`. If a module for this resource type already
+  exists, UPDATE its files (same paths, same module name) instead of
+  creating a second module for the same purpose.
+- Cross-module references go through outputs: e.g. `module.resource_group.name`,
+  not a bare `azurerm_resource_group.x.name` reached across module boundaries.
+"""
+
 EXPLAIN_PROMPT = """\
 The user wants to understand their infrastructure. Analyze the provided Terraform files and state, then explain:
 1. What resources exist and their purpose
@@ -76,3 +110,12 @@ The user wants to DELETE infrastructure. Be very careful:
 - Always warn about data loss, downtime, or dependency impacts
 - Set action="delete" for all affected resources
 """
+
+
+def build_system_prompt(structure_mode: str = "flat") -> str:
+    """Return the system prompt for the given /structure mode. "module" appends
+    the files[]-based module-layout instructions; anything else (default
+    "flat") returns the base prompt unchanged."""
+    if structure_mode == "module":
+        return SYSTEM_PROMPT + MODULE_STRUCTURE_ADDENDUM
+    return SYSTEM_PROMPT

@@ -13,7 +13,10 @@ class WorkspaceManager:
         self.root.mkdir(parents=True, exist_ok=True)
 
     def get_tf_files(self) -> list[Path]:
-        return sorted(self.root.glob("*.tf"))
+        """All .tf files in the workspace, including anything under modules/
+        — recursive so module-mode files are visible to context building,
+        /files, and duplicate detection, not just root-level files."""
+        return sorted(self.root.rglob("*.tf"))
 
     def get_context(self) -> str:
         """Build context string from existing .tf files and state for AI."""
@@ -22,7 +25,7 @@ class WorkspaceManager:
         if tf_files:
             parts.append("## Existing Terraform Files")
             for f in tf_files:
-                parts.append(f"\n### {f.name}\n```hcl\n{f.read_text(encoding='utf-8')}\n```")
+                parts.append(f"\n### {f.relative_to(self.root).as_posix()}\n```hcl\n{f.read_text(encoding='utf-8')}\n```")
         else:
             parts.append("## Existing Terraform Files\nNo .tf files found in workspace.")
 
@@ -46,8 +49,14 @@ class WorkspaceManager:
         if not filename.endswith(".tf"):
             filename += ".tf"
         path = self.root / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding='utf-8')
         return path
+
+    def write_files(self, files: list[dict]) -> list[Path]:
+        """Write each {"path": ..., "content": ...} entry (module mode's
+        multi-file responses); creates parent dirs (modules/<name>/) as needed."""
+        return [self.write_hcl(f["path"], f["content"]) for f in files]
 
     def read_hcl(self, filename: str) -> Optional[str]:
         path = self.root / filename
@@ -64,7 +73,7 @@ class WorkspaceManager:
         result = []
         for f in self.get_tf_files():
             result.append({
-                "name": f.name,
+                "name": f.relative_to(self.root).as_posix(),
                 "size": f.stat().st_size,
                 "lines": len(f.read_text(encoding='utf-8').splitlines()),
             })
@@ -98,8 +107,33 @@ class WorkspaceManager:
             return None
         for f in self.get_tf_files():
             if new_addrs & self._resource_addresses(f.read_text(encoding='utf-8')):
-                return f.name
+                return f.relative_to(self.root).as_posix()
         return None
+
+    def find_conflicting_files(self, files: list[dict]) -> dict[str, str]:
+        """Module-mode counterpart to find_existing_file_for() for a
+        multi-file write: return {resource_address: existing_path} for any
+        resource address declared in `files` that ALSO already exists in a
+        workspace file that isn't one of the paths being written — i.e. the
+        AI created a new/second module for a resource that already lives in
+        another one, which would leave Terraform with the same duplicate-
+        declaration problem module mode is otherwise meant to avoid.
+        """
+        new_paths = {f["path"] for f in files}
+        new_addrs: dict[str, str] = {}
+        for f in files:
+            for addr in self._resource_addresses(f["content"]):
+                new_addrs.setdefault(addr, f["path"])
+
+        conflicts: dict[str, str] = {}
+        for existing in self.get_tf_files():
+            rel = existing.relative_to(self.root).as_posix()
+            if rel in new_paths:
+                continue  # being overwritten as part of this same save, not a conflict
+            for addr in self._resource_addresses(existing.read_text(encoding='utf-8')):
+                if addr in new_addrs:
+                    conflicts[addr] = rel
+        return conflicts
 
     def suggest_filename(self, intent: str, providers: list[str], resources: list[dict], hcl: str = "") -> str:
         existing = self.find_existing_file_for(hcl) if hcl else None

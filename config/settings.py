@@ -38,44 +38,65 @@ PROVIDER_VERSIONS = {
 MODEL_PRESETS = {
     # ── Free (API key, free tier) ─────────────────────────────────────────────
     # Gemini 3.x series — current recommended free-tier models
-    "gemini/gemini-3.1-flash-lite":      {"provider": "google",        "free": True},
-    "gemini/gemini-3.5-flash":           {"provider": "google",        "free": True},
+    "gemini/gemini-3.1-flash-lite":      {"provider": "google",        "free": True,  "strong": False},
+    "gemini/gemini-3.5-flash":           {"provider": "google",        "free": True,  "strong": True},
     # Stable aliases
-    "gemini/gemini-flash-latest":        {"provider": "google",        "free": True},
-    "gemini/gemini-pro-latest":          {"provider": "google",        "free": True},
+    "gemini/gemini-flash-latest":        {"provider": "google",        "free": True,  "strong": True},
+    "gemini/gemini-pro-latest":          {"provider": "google",        "free": True,  "strong": True},
     # Gemini 2.x (kept for compatibility; some projects may still have quota)
-    "gemini/gemini-2.0-flash":           {"provider": "google",        "free": True},
-    "gemini/gemini-2.0-flash-lite":      {"provider": "google",        "free": True},
-    "groq/llama-3.3-70b-versatile":      {"provider": "groq",          "free": True},
-    "groq/llama-3.1-8b-instant":         {"provider": "groq",          "free": True},
-    "groq/deepseek-r1-distill-llama-70b":{"provider": "groq",          "free": True},
+    "gemini/gemini-2.0-flash":           {"provider": "google",        "free": True,  "strong": True},
+    "gemini/gemini-2.0-flash-lite":      {"provider": "google",        "free": True,  "strong": False},
+    "groq/llama-3.3-70b-versatile":      {"provider": "groq",          "free": True,  "strong": True},
+    "groq/llama-3.1-8b-instant":         {"provider": "groq",          "free": True,  "strong": False},
+    "groq/deepseek-r1-distill-llama-70b":{"provider": "groq",          "free": True,  "strong": True},
     # ── Paid ──────────────────────────────────────────────────────────────────
-    "gpt-4o":                            {"provider": "openai",        "free": False},
-    "gpt-4o-mini":                       {"provider": "openai",        "free": False},
-    "gpt-4.1":                           {"provider": "openai",        "free": False},
-    "gpt-4.1-mini":                      {"provider": "openai",        "free": False},
-    "claude-sonnet-5":                   {"provider": "anthropic",     "free": False},
-    "claude-opus-4-8":                   {"provider": "anthropic",     "free": False},
-    "claude-haiku-4-5-20251001":         {"provider": "anthropic",     "free": False},
-    "azure/gpt-4o":                      {"provider": "azure_openai",  "free": False},
+    "gpt-4o":                            {"provider": "openai",        "free": False, "strong": True},
+    "gpt-4o-mini":                       {"provider": "openai",        "free": False, "strong": True},
+    "gpt-4.1":                           {"provider": "openai",        "free": False, "strong": True},
+    "gpt-4.1-mini":                      {"provider": "openai",        "free": False, "strong": True},
+    "claude-sonnet-5":                   {"provider": "anthropic",     "free": False, "strong": True},
+    "claude-opus-4-8":                   {"provider": "anthropic",     "free": False, "strong": True},
+    "claude-haiku-4-5-20251001":         {"provider": "anthropic",     "free": False, "strong": True},
+    "azure/gpt-4o":                      {"provider": "azure_openai",  "free": False, "strong": True},
     # ── Local (Ollama) ────────────────────────────────────────────────────────
-    "ollama/llama3.2":                   {"provider": "ollama",        "free": True},
-    "ollama/llama3.1":                   {"provider": "ollama",        "free": True},
-    "ollama/qwen2.5-coder":              {"provider": "ollama",        "free": True},
-    "ollama/qwen3.5":                    {"provider": "ollama",        "free": True},
-    "ollama/mistral":                    {"provider": "ollama",        "free": True},
-    "ollama/codellama":                  {"provider": "ollama",        "free": True},
+    # All local models default to "not strong" for module mode: they run at
+    # 3B-8B parameter sizes in practice, and this is the exact class of model
+    # that regenerated full duplicate configs instead of diffs in our own
+    # testing — multi-file module output (main/variables/outputs per module,
+    # kept consistent across turns) is a materially harder target than the
+    # single-file case that already tripped them up.
+    "ollama/llama3.2":                   {"provider": "ollama",        "free": True,  "strong": False},
+    "ollama/llama3.1":                   {"provider": "ollama",        "free": True,  "strong": False},
+    "ollama/qwen2.5-coder":              {"provider": "ollama",        "free": True,  "strong": False},
+    "ollama/qwen3.5":                    {"provider": "ollama",        "free": True,  "strong": False},
+    "ollama/mistral":                    {"provider": "ollama",        "free": True,  "strong": False},
+    "ollama/codellama":                  {"provider": "ollama",        "free": True,  "strong": False},
     # ── Legacy aliases (kept so existing configs don't break) ─────────────────
-    "gemini/gemini-2.5-flash":           {"provider": "google",        "free": True},
-    "gemini/gemini-2.5-pro":             {"provider": "google",        "free": True},
-    "gemini/gemini-1.5-flash":           {"provider": "google",        "free": True},
-    "gemini/gemini-1.5-pro":             {"provider": "google",        "free": True},
-    "groq/llama3-70b-8192":              {"provider": "groq",          "free": True},
-    "groq/mixtral-8x7b-32768":           {"provider": "groq",          "free": True},
-    "ollama/llama3":                     {"provider": "ollama",        "free": True},
-    "claude-sonnet-4-6":                 {"provider": "anthropic",     "free": False},
-    "gpt-3.5-turbo":                     {"provider": "openai",        "free": False},
+    "gemini/gemini-2.5-flash":           {"provider": "google",        "free": True,  "strong": True},
+    "gemini/gemini-2.5-pro":             {"provider": "google",        "free": True,  "strong": True},
+    "gemini/gemini-1.5-flash":           {"provider": "google",        "free": True,  "strong": True},
+    "gemini/gemini-1.5-pro":             {"provider": "google",        "free": True,  "strong": True},
+    "groq/llama3-70b-8192":              {"provider": "groq",          "free": True,  "strong": True},
+    "groq/mixtral-8x7b-32768":           {"provider": "groq",          "free": True,  "strong": True},
+    "ollama/llama3":                     {"provider": "ollama",        "free": True,  "strong": False},
+    "claude-sonnet-4-6":                 {"provider": "anthropic",     "free": False, "strong": True},
+    "gpt-3.5-turbo":                     {"provider": "openai",        "free": False, "strong": False},
 }
+
+# Free, hosted model to point users at when their current model isn't strong
+# enough for module mode — matches the "Recommended" pick in /models.
+RECOMMENDED_MODULE_MODEL = "gemini/gemini-2.0-flash"
+
+
+def model_supports_modules(model: str) -> bool:
+    """Best-effort heuristic: can this model reliably hold multi-file module
+    output (main.tf/variables.tf/outputs.tf per module, kept in sync with
+    root wiring across turns) together? Unknown/custom models (anything not
+    in MODEL_PRESETS, e.g. a hand-typed litellm id) default to False —
+    unverified capability gets the same suggestion as known-weak models
+    rather than a silent assumption either way.
+    """
+    return MODEL_PRESETS.get(model, {}).get("strong", False)
 
 
 class TerraAIConfig(BaseModel):
@@ -89,6 +110,7 @@ class TerraAIConfig(BaseModel):
     terraform_bin: str = "terraform"
     temperature: float = 0.1
     setup_complete: bool = False          # True after first-run wizard completes
+    structure_mode: str = "flat"          # "flat" (default) or "module" — see /structure
 
     # Azure credentials (stored here when not using keyring / env vars)
     azure_subscription_id: Optional[str] = None

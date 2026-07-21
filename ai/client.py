@@ -7,7 +7,7 @@ from typing import Generator, Optional
 import litellm
 from litellm import completion
 from litellm.exceptions import RateLimitError, ServiceUnavailableError
-from .prompts import SYSTEM_PROMPT
+from .prompts import build_system_prompt
 from config.settings import TerraAIConfig
 
 litellm.suppress_debug_info = True
@@ -34,14 +34,36 @@ class AIResponse:
         self.summary: str = raw.get("summary", "")
         self.resources: list[dict] = raw.get("resources", [])
         self.hcl: str = raw.get("hcl", "")
+        self.files: list[dict] = self._parse_files(raw.get("files", []))
         self.variables: dict = raw.get("variables", {})
         self.outputs: dict = raw.get("outputs", {})
         self.warnings: list[str] = raw.get("warnings", [])
         self.next_steps: list[str] = raw.get("next_steps", [])
 
+    @staticmethod
+    def _parse_files(raw_files: object) -> list[dict]:
+        """Keep only well-formed {"path": str, "content": str} entries —
+        module mode asks weaker models for a nested files[] array on top of
+        the JSON they already sometimes get wrong, so a malformed entry here
+        (missing key, wrong type) should be dropped rather than crash the app."""
+        if not isinstance(raw_files, list):
+            return []
+        out = []
+        for f in raw_files:
+            if not isinstance(f, dict):
+                continue
+            path, content = f.get("path"), f.get("content")
+            if isinstance(path, str) and path.strip() and isinstance(content, str):
+                out.append({"path": path.strip(), "content": content})
+        return out
+
     @property
     def has_hcl(self) -> bool:
         return bool(self.hcl and self.hcl.strip())
+
+    @property
+    def has_files(self) -> bool:
+        return bool(self.files)
 
     @property
     def is_destructive(self) -> bool:
@@ -163,7 +185,7 @@ class TerraAIClient:
         })
 
     def ask(self, user_message: str, workspace_context: str = "") -> Generator[str, None, AIResponse]:
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages = [{"role": "system", "content": build_system_prompt(self.config.structure_mode)}]
 
         if workspace_context:
             messages.append({
@@ -213,7 +235,7 @@ class TerraAIClient:
 
     def ask_sync(self, user_message: str, workspace_context: str = "") -> AIResponse:
         """Non-streaming version for simple queries."""
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages = [{"role": "system", "content": build_system_prompt(self.config.structure_mode)}]
         if workspace_context:
             messages.append({"role": "user", "content": f"[WORKSPACE CONTEXT]\n{workspace_context}"})
             messages.append({"role": "assistant", "content": '{"intent":"read","providers":[],"summary":"Context loaded.","resources":[],"hcl":"","variables":{},"outputs":{},"warnings":[],"next_steps":[]}'})

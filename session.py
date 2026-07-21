@@ -11,7 +11,7 @@ from rich.text import Text
 from rich.spinner import Spinner
 from rich.panel import Panel
 
-from config import TerraAIConfig
+from config import TerraAIConfig, model_supports_modules, RECOMMENDED_MODULE_MODEL
 from ai import TerraAIClient, AIResponse
 from terraform import TerraformExecutor, WorkspaceManager
 from vcs import GitManager, InfrastructureChangelog, DriftDetector, InfrastructureDiagram
@@ -40,6 +40,9 @@ HELP_TEXT = """
   [bold]/outputs[/bold]               Show Terraform outputs
   [bold]/files[/bold]                 List .tf files in workspace
   [bold]/diagram[/bold]               Generate interactive architecture diagram (HTML)
+  [bold]/structure[/bold]             Show current generation layout (flat/module)
+  [bold]/structure flat[/bold]        Generate resources directly in root .tf files (default)
+  [bold]/structure module[/bold]      Generate reusable modules/<name>/{main,variables,outputs}.tf
 
 [bold]Version Control (Chronicle)[/bold]
   [bold]/history[/bold]               Show git commit log for this workspace
@@ -303,6 +306,22 @@ class TerraAISession:
             else:
                 self._handle_ai_request(user_input)
 
+    def _maybe_warn_weak_model_for_modules(self) -> None:
+        """If module structure is active and the current model isn't known to
+        reliably hold multi-file output together, say so and point at a
+        stronger option. Advisory only — never blocks generation."""
+        if self.config.structure_mode != "module" or model_supports_modules(self.config.model):
+            return
+        warning(
+            f"[bold]{self.config.model}[/bold] isn't known to reliably keep module output "
+            f"consistent (main.tf/variables.tf/outputs.tf per module, kept in sync with root "
+            f"wiring across turns) — local/small models are the ones most likely to drift."
+        )
+        console.print(
+            f"[dim]   Consider: [/dim][bold]/model {RECOMMENDED_MODULE_MODEL}[/bold][dim] (free) "
+            f"— or /models for other options[/dim]"
+        )
+
     def _handle_command(self, cmd: str) -> None:
         parts = cmd.split(maxsplit=1)
         command = parts[0].lower()
@@ -334,6 +353,28 @@ class TerraAISession:
             self.config.save()
             self.client = TerraAIClient(self.config)
             success(f"Switched to model: {arg}")
+            self._maybe_warn_weak_model_for_modules()
+
+        elif command == "/structure":
+            sub = arg.strip().lower()
+            if not sub:
+                icon = "📦" if self.config.structure_mode == "module" else "📄"
+                info(f"{icon} Structure mode: {self.config.structure_mode}")
+                console.print("[dim]Switch with /structure flat or /structure module[/dim]")
+                self._maybe_warn_weak_model_for_modules()
+                return
+            if sub not in ("flat", "module"):
+                error("Usage: /structure [flat|module]")
+                return
+            self.config.structure_mode = sub
+            self.config.save()
+            success(f"Structure mode: {sub}")
+            if sub == "module":
+                console.print(
+                    "[dim]New requests generate modules/<name>/{main,variables,outputs}.tf "
+                    "plus root wiring instead of flat resource files.[/dim]"
+                )
+                self._maybe_warn_weak_model_for_modules()
 
         elif command == "/workspace":
             if not arg:
@@ -744,6 +785,7 @@ class TerraAISession:
         ai_resp: AIResponse | None = None
 
         console.print()
+        self._maybe_warn_weak_model_for_modules()
         try:
             with Live(Spinner("dots", text="[magenta]🤖 Thinking...[/magenta]"), refresh_per_second=10, console=console):
                 ai_resp = self.client.ask_sync(user_input, workspace_context)
@@ -772,10 +814,58 @@ class TerraAISession:
                 for r in ai_resp.resources
             ])
 
-        if ai_resp.has_hcl and self.config.show_raw_hcl:
+        if ai_resp.has_hcl and not ai_resp.has_files and self.config.show_raw_hcl:
             hcl_panel(ai_resp.hcl)
 
-        if ai_resp.has_hcl:
+        if ai_resp.has_files:
+            if ai_resp.is_destructive:
+                console.print("[bold red]⚠️  This action will DELETE resources.[/bold red]")
+
+            from rich.table import Table
+            from rich import box
+            t = Table(box=box.SIMPLE, show_header=True, header_style="bold cyan", title="📦 Module files")
+            t.add_column("Path")
+            t.add_column("Lines", justify="right")
+            for f in ai_resp.files:
+                t.add_row(f["path"], str(len(f["content"].splitlines())))
+            console.print(t)
+
+            if self.config.show_raw_hcl:
+                for f in ai_resp.files:
+                    hcl_panel(f["content"], title=f["path"])
+
+            conflicts = self.workspace.find_conflicting_files(ai_resp.files)
+            if conflicts:
+                warning("These resources already exist elsewhere in the workspace:")
+                for addr, existing_path in conflicts.items():
+                    console.print(f"  [yellow]▸[/yellow] {addr} → already in [bold]{existing_path}[/bold]")
+                console.print("[dim]Saving anyway may leave duplicate declarations Terraform will reject.[/dim]")
+
+            action = console.input(
+                f"[bold cyan]💾 Save {len(ai_resp.files)} file(s)? "
+                f"([green]y[/green]=yes, [red]n[/red]=skip, [blue]p[/blue]=plan after save): [/bold cyan]"
+            ).strip().lower()
+
+            if action in ("y", "yes", "p"):
+                saved_paths = self.workspace.write_files(ai_resp.files)
+                for p in saved_paths:
+                    success(f"Saved → {p}")
+                hcl_file = ", ".join(f["path"] for f in ai_resp.files)
+                self._auto_commit(ai_resp, hcl_file, user_input)
+
+                if action == "p":
+                    section("Terraform Plan", "📋")
+                    plan_output = ""
+                    for line in self.executor.plan():
+                        plan_output += line
+                        _print_terraform_line(line)
+                    stats = self.executor.parse_plan_stats(plan_output)
+                    if any(stats[k] for k in ("add", "change", "destroy")):
+                        plan_summary(plan_output, stats)
+            else:
+                info("Files not saved (you can ask again or modify your request)")
+
+        elif ai_resp.has_hcl:
             if ai_resp.is_destructive:
                 console.print("[bold red]⚠️  This action will DELETE resources.[/bold red]")
 

@@ -122,7 +122,7 @@ class InfrastructureDiagram:
             nodes.update(self._parse_state(state_file))
 
         # Overlay/supplement with HCL (catches resources not yet applied)
-        for tf_file in sorted(self.workspace.glob("*.tf")):
+        for tf_file in sorted(self.workspace.rglob("*.tf")):
             for key, node in self._parse_hcl(tf_file).items():
                 if key not in nodes:
                     nodes[key] = node
@@ -187,7 +187,7 @@ class InfrastructureDiagram:
         seen: set[tuple[str, str]] = set()
         resource_keys = {n.key for n in resources}
 
-        for tf_file in sorted(self.workspace.glob("*.tf")):
+        for tf_file in sorted(self.workspace.rglob("*.tf")):
             text = tf_file.read_text(encoding='utf-8')
             # Find patterns like: azurerm_resource_group.rg_prod.name
             for m in re.finditer(
