@@ -1,4 +1,4 @@
-litellm>=1.40.0
+litellm>=1.40.0,<1.92.0  # 1.92.0 packaged a mandatory Rust bridge into the wheel (pyo3/maturin) — no prebuilt wheel for every platform means pip falls back to compiling from source, which needs a working Rust+C toolchain and network access to crates.io. Broke macOS CI (crates.io fetch failure); avoid the whole class of problem by staying below the boundary. Verified 1.91.4 resolves every model this app supports before pinning here.
 rich>=13.7.0
 typer>=0.12.0
 pydantic>=2.0.0
