@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 import sys
 from pathlib import Path
 from prompt_toolkit import PromptSession
@@ -452,6 +453,8 @@ class TerraAISession:
             stats = self.executor.parse_plan_stats(plan_output)
             if any(stats[k] for k in ("add", "change", "destroy")):
                 plan_summary(plan_output, stats)
+            if _has_terraform_error(plan_output):
+                self._explain_terraform_error(plan_output, "plan")
 
         elif command == "/apply":
             section("Terraform Apply", "🚀")
@@ -461,8 +464,12 @@ class TerraAISession:
                 if confirm.strip().lower() != "yes":
                     info("Apply cancelled")
                     return
+            apply_output = ""
             for line in self.executor.apply(auto_approve=True):
+                apply_output += line
                 _print_terraform_line(line)
+            if _has_terraform_error(apply_output):
+                self._explain_terraform_error(apply_output, "apply")
 
         elif command == "/destroy":
             section("Terraform Destroy", "💥")
@@ -862,6 +869,8 @@ class TerraAISession:
                     stats = self.executor.parse_plan_stats(plan_output)
                     if any(stats[k] for k in ("add", "change", "destroy")):
                         plan_summary(plan_output, stats)
+                    if _has_terraform_error(plan_output):
+                        self._explain_terraform_error(plan_output, "plan")
             else:
                 info("Files not saved (you can ask again or modify your request)")
 
@@ -894,6 +903,8 @@ class TerraAISession:
                     stats = self.executor.parse_plan_stats(plan_output)
                     if any(stats[k] for k in ("add", "change", "destroy")):
                         plan_summary(plan_output, stats)
+                    if _has_terraform_error(plan_output):
+                        self._explain_terraform_error(plan_output, "plan")
 
             elif action == "r":
                 new_name = console.input("[bold]Enter filename (without .tf): [/bold]").strip()
@@ -931,6 +942,31 @@ class TerraAISession:
                 hcl_file=hcl_file,
             )
             self.drift.snapshot_state(sha)
+
+    def _explain_terraform_error(self, output: str, operation: str) -> None:
+        """Send failed terraform output to AI and print a plain-English explanation."""
+        try:
+            with Live(
+                Spinner("dots", text="[yellow]Analyzing error...[/yellow]"),
+                refresh_per_second=10,
+                console=console,
+            ):
+                explanation = self.client.explain_error_sync(output, operation)
+        except Exception:
+            return
+        if explanation:
+            console.print(Panel(
+                explanation,
+                title="[bold yellow]AI Error Analysis[/bold yellow]",
+                border_style="yellow",
+                padding=(1, 2),
+            ))
+            console.print()
+
+
+def _has_terraform_error(output: str) -> bool:
+    """Return True if terraform output contains an error line."""
+    return bool(re.search(r'(?m)^[ \t│]*Error:', output))
 
 
 def _handle_ai_error(exc: Exception, model: str) -> None:

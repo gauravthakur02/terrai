@@ -269,3 +269,30 @@ class TerraAIClient:
         if parsed:
             return AIResponse(parsed)
         return self._fallback(raw)
+
+    def explain_error_sync(self, error_output: str, operation: str = "terraform") -> str:
+        """Ask AI to explain a failed terraform operation in plain English. Returns '' on failure."""
+        from .prompts import ERROR_EXPLAINER_PROMPT
+        trimmed = error_output[-3000:].strip()
+        model = self._resolve_model()
+        kwargs: dict = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": ERROR_EXPLAINER_PROMPT},
+                {"role": "user", "content": f"This `terraform {operation}` failed:\n\n{trimmed}"},
+            ],
+            "temperature": 0.1,
+        }
+        if self.config.model.startswith("ollama"):
+            kwargs["api_base"] = self.config.api_base or "http://localhost:11434"
+            kwargs["extra_body"] = {"think": False}
+        elif self.config.api_base:
+            kwargs["api_base"] = self.config.api_base
+        key = self.config.get_api_key()
+        if key:
+            kwargs["api_key"] = key
+        try:
+            resp = self._completion_with_retry(**kwargs)
+            return resp.choices[0].message.content.strip()
+        except Exception:
+            return ""

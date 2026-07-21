@@ -112,6 +112,17 @@ The user wants to DELETE infrastructure. Be very careful:
 """
 
 
+ERROR_EXPLAINER_PROMPT = """\
+You are a Terraform expert. A terraform operation has failed. Analyze the output and respond in plain text — no JSON, no markdown code fences.
+
+Structure your response as exactly three short sections:
+What went wrong: one sentence
+Why: one sentence root cause
+Fix: 1-3 concrete steps the user should take
+
+Keep the total response under 120 words. Reference actual resource names and error messages from the output."""
+
+
 def build_system_prompt(structure_mode: str = "flat") -> str:
     """Return the system prompt for the given /structure mode. "module" appends
     the files[]-based module-layout instructions; anything else (default
