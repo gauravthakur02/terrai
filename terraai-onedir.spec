@@ -1,11 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec for TerraAI — produces a single-file executable.
-Used for macOS/Linux releases, and as the plain Windows fallback build.
-Build with:  pyinstaller terraai.spec
+PyInstaller spec for TerraAI — produces a onedir build (dist/terraai/ folder
+of terraai.exe + supporting files, no self-extraction on launch). This is
+the payload the Go launcher (launcher/) wraps into a single distributable
+.exe for Windows — see scripts/package_windows.py.
+Build with:  pyinstaller terraai-onedir.spec
 
 Shared Analysis() config lives in pyinstaller_common.py — edit there, not
-here, so this and terraai-onedir.spec can't drift apart.
+here, so this and terraai.spec can't drift apart.
 """
 import sys
 from pathlib import Path
@@ -22,17 +24,13 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
+    exclude_binaries=True,
     name='terraai',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    upx_exclude=[],
-    runtime_tmpdir=None,
     console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -40,4 +38,15 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name='terraai',
 )
