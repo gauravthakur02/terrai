@@ -1,7 +1,10 @@
 from __future__ import annotations
 import json
+import re
 from pathlib import Path
 from typing import Optional
+
+_RESOURCE_ADDR_RE = re.compile(r'resource\s+"([a-zA-Z0-9_]+)"\s+"([a-zA-Z0-9_]+)"')
 
 
 class WorkspaceManager:
@@ -73,7 +76,36 @@ class WorkspaceManager:
                 return True
         return False
 
-    def suggest_filename(self, intent: str, providers: list[str], resources: list[dict]) -> str:
+    @staticmethod
+    def _resource_addresses(text: str) -> set[str]:
+        """Extract `type.name` resource addresses declared in HCL text."""
+        return {f"{t}.{n}" for t, n in _RESOURCE_ADDR_RE.findall(text)}
+
+    def find_existing_file_for(self, hcl: str) -> Optional[str]:
+        """Return the name of an existing .tf file that already declares one
+        of the resource addresses present in `hcl`.
+
+        The AI regenerates the *entire* config on follow-up requests (e.g.
+        "add tenant_id", "fix the issue") rather than a diff, so on its own
+        `suggest_filename`'s type-based heuristic can't tell that content is
+        an edit of an existing file rather than a new one — it falls back to
+        "main.tf" and the same resources end up declared twice, which
+        Terraform then rejects as duplicates. Detecting the overlap here
+        routes the save back to the file the resources already live in.
+        """
+        new_addrs = self._resource_addresses(hcl)
+        if not new_addrs:
+            return None
+        for f in self.get_tf_files():
+            if new_addrs & self._resource_addresses(f.read_text(encoding='utf-8')):
+                return f.name
+        return None
+
+    def suggest_filename(self, intent: str, providers: list[str], resources: list[dict], hcl: str = "") -> str:
+        existing = self.find_existing_file_for(hcl) if hcl else None
+        if existing:
+            return existing
+
         if intent == "configure" or not resources:
             return "main.tf"
         first_resource = resources[0] if resources else {}

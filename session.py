@@ -780,7 +780,7 @@ class TerraAISession:
                 console.print("[bold red]⚠️  This action will DELETE resources.[/bold red]")
 
             suggested_file = self.workspace.suggest_filename(
-                ai_resp.intent, ai_resp.providers, ai_resp.resources
+                ai_resp.intent, ai_resp.providers, ai_resp.resources, ai_resp.hcl
             )
 
             console.print(f"\n[dim]Suggested file:[/dim] [bold]{suggested_file}[/bold]")
