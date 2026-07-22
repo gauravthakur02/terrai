@@ -26,7 +26,7 @@ from ui import (
     success, warning, error, info, model_badge, resource_table,
     PROVIDER_ICONS, TerraAICompleter,
 )
-from security import lint as _security_lint, Finding as _Finding
+from security import lint as _security_lint, Finding as _Finding, scan_secrets as _scan_secrets
 
 PROMPT_STYLE = Style.from_dict({
     "prompt": "ansicyan bold",
@@ -808,13 +808,19 @@ class TerraAISession:
                 f"([green]y[/green]=yes, [yellow]r[/yellow]=rename, [red]n[/red]=skip): [/bold cyan]"
             ).strip().lower()
             if save_action in ("y", "yes"):
-                saved_path = self.workspace.write_hcl(suggested_file, resp.hcl)
-                success(f"Saved → {saved_path}")
+                if _secrets_gate(resp.hcl):
+                    saved_path = self.workspace.write_hcl(suggested_file, resp.hcl)
+                    success(f"Saved → {saved_path}")
+                else:
+                    info("Save cancelled — replace secrets with Terraform variables.")
             elif save_action == "r":
                 new_name = console.input("[bold]Enter filename (without .tf): [/bold]").strip()
                 if new_name:
-                    saved_path = self.workspace.write_hcl(new_name, resp.hcl)
-                    success(f"Saved → {saved_path}")
+                    if _secrets_gate(resp.hcl):
+                        saved_path = self.workspace.write_hcl(new_name, resp.hcl)
+                        success(f"Saved → {saved_path}")
+                    else:
+                        info("Save cancelled — replace secrets with Terraform variables.")
             else:
                 info("Not saved.")
 
@@ -966,29 +972,33 @@ class TerraAISession:
             ).strip().lower()
 
             if action in ("y", "yes", "p"):
-                saved_paths = self.workspace.write_files(ai_resp.files)
-                for p in saved_paths:
-                    success(f"Saved → {p}")
-                hcl_file = ", ".join(f["path"] for f in ai_resp.files)
-                self._auto_commit(ai_resp, hcl_file, user_input)
-                validated = self._validate_and_autofix(ai_resp, user_input)
+                _hcl_combined = "\n".join(f["content"] for f in ai_resp.files)
+                if not _secrets_gate(_hcl_combined):
+                    info("Save cancelled — replace secrets with Terraform variables.")
+                else:
+                    saved_paths = self.workspace.write_files(ai_resp.files)
+                    for p in saved_paths:
+                        success(f"Saved → {p}")
+                    hcl_file = ", ".join(f["path"] for f in ai_resp.files)
+                    self._auto_commit(ai_resp, hcl_file, user_input)
+                    validated = self._validate_and_autofix(ai_resp, user_input)
 
-                if action == "p":
-                    if validated is None:
-                        warning("Skipping plan — validation did not pass")
-                    else:
-                        section("Terraform Plan", "📋")
-                        plan_output = ""
-                        for line in self.executor.plan():
-                            plan_output += line
-                            _print_terraform_line(line)
-                        stats = self.executor.parse_plan_stats(plan_output)
-                        if any(stats[k] for k in ("add", "change", "destroy")):
-                            plan_summary(plan_output, stats)
-                            if not _has_terraform_error(plan_output):
-                                self._show_cost_estimate()
-                        if _has_terraform_error(plan_output):
-                            self._explain_terraform_error(plan_output, "plan")
+                    if action == "p":
+                        if validated is None:
+                            warning("Skipping plan — validation did not pass")
+                        else:
+                            section("Terraform Plan", "📋")
+                            plan_output = ""
+                            for line in self.executor.plan():
+                                plan_output += line
+                                _print_terraform_line(line)
+                            stats = self.executor.parse_plan_stats(plan_output)
+                            if any(stats[k] for k in ("add", "change", "destroy")):
+                                plan_summary(plan_output, stats)
+                                if not _has_terraform_error(plan_output):
+                                    self._show_cost_estimate()
+                            if _has_terraform_error(plan_output):
+                                self._explain_terraform_error(plan_output, "plan")
             else:
                 info("Files not saved (you can ask again or modify your request)")
 
@@ -1014,35 +1024,41 @@ class TerraAISession:
                 break
 
             if action in ("y", "yes", "p"):
-                saved_path = self.workspace.write_hcl(suggested_file, ai_resp.hcl)
-                success(f"Saved → {saved_path}")
-                self._auto_commit(ai_resp, suggested_file, user_input)
-                validated = self._validate_and_autofix(ai_resp, user_input, saved_filename=suggested_file)
+                if not _secrets_gate(ai_resp.hcl):
+                    info("Save cancelled — replace secrets with Terraform variables.")
+                else:
+                    saved_path = self.workspace.write_hcl(suggested_file, ai_resp.hcl)
+                    success(f"Saved → {saved_path}")
+                    self._auto_commit(ai_resp, suggested_file, user_input)
+                    validated = self._validate_and_autofix(ai_resp, user_input, saved_filename=suggested_file)
 
-                if action == "p":
-                    if validated is None:
-                        warning("Skipping plan — validation did not pass")
-                    else:
-                        section("Terraform Plan", "📋")
-                        plan_output = ""
-                        for line in self.executor.plan():
-                            plan_output += line
-                            _print_terraform_line(line)
-                        stats = self.executor.parse_plan_stats(plan_output)
-                        if any(stats[k] for k in ("add", "change", "destroy")):
-                            plan_summary(plan_output, stats)
-                            if not _has_terraform_error(plan_output):
-                                self._show_cost_estimate()
-                        if _has_terraform_error(plan_output):
-                            self._explain_terraform_error(plan_output, "plan")
+                    if action == "p":
+                        if validated is None:
+                            warning("Skipping plan — validation did not pass")
+                        else:
+                            section("Terraform Plan", "📋")
+                            plan_output = ""
+                            for line in self.executor.plan():
+                                plan_output += line
+                                _print_terraform_line(line)
+                            stats = self.executor.parse_plan_stats(plan_output)
+                            if any(stats[k] for k in ("add", "change", "destroy")):
+                                plan_summary(plan_output, stats)
+                                if not _has_terraform_error(plan_output):
+                                    self._show_cost_estimate()
+                            if _has_terraform_error(plan_output):
+                                self._explain_terraform_error(plan_output, "plan")
 
             elif action == "r":
                 new_name = console.input("[bold]Enter filename (without .tf): [/bold]").strip()
                 if new_name:
-                    saved_path = self.workspace.write_hcl(new_name, ai_resp.hcl)
-                    success(f"Saved → {saved_path}")
-                    self._auto_commit(ai_resp, new_name + ".tf", user_input)
-                    self._validate_and_autofix(ai_resp, user_input, saved_filename=new_name)
+                    if not _secrets_gate(ai_resp.hcl):
+                        info("Save cancelled — replace secrets with Terraform variables.")
+                    else:
+                        saved_path = self.workspace.write_hcl(new_name, ai_resp.hcl)
+                        success(f"Saved → {saved_path}")
+                        self._auto_commit(ai_resp, new_name + ".tf", user_input)
+                        self._validate_and_autofix(ai_resp, user_input, saved_filename=new_name)
             else:
                 info("HCL not saved (you can ask again or modify your request)")
 
@@ -1251,6 +1267,35 @@ class TerraAISession:
                 padding=(1, 2),
             ))
             console.print()
+
+
+def _secrets_gate(hcl: str) -> bool:
+    """Scan for hardcoded secrets; return True to proceed, False to cancel.
+
+    Called after the user confirms a save ('y') but before the file is written.
+    Shows a blocking panel and requires explicit re-confirmation when secrets
+    are detected.
+    """
+    hits = _scan_secrets(hcl)
+    if not hits:
+        return True
+    lines = ["[bold]Patterns that look like real credentials were found:[/bold]\n"]
+    for h in hits:
+        lines.append(
+            f"  [red]▸[/red] line {h.line}  [yellow]{h.name}[/yellow]  [dim]{h.snippet}[/dim]"
+        )
+    lines.append(
+        "\n[dim]Use Terraform variables or a secrets manager (e.g. HashiCorp Vault, "
+        "AWS Secrets Manager) instead of hardcoded values.[/dim]"
+    )
+    console.print(Panel(
+        "\n".join(lines),
+        title="[bold red]\U0001f511 Possible Hardcoded Secrets[/bold red]",
+        border_style="red",
+        padding=(0, 1),
+    ))
+    answer = console.input("[bold red]Save anyway?[/bold red] [dim](y/N):[/dim] ").strip().lower()
+    return answer in ("y", "yes")
 
 
 _VALIDATE_INIT_ERR = re.compile(
