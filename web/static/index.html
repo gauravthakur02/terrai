@@ -134,6 +134,7 @@ a{color:var(--acc);text-decoration:none}
 .panels{flex:1;overflow:hidden;position:relative}
 .tpanel{position:absolute;inset:0;overflow-y:auto;display:none;padding:16px}
 .tpanel.on{display:block}
+#t-arch.on{display:flex;flex-direction:column;padding:0}
 
 /* ── Resource table ───────────────────────────────────────────────────────── */
 .res-table{width:100%;border-collapse:collapse}
@@ -362,9 +363,13 @@ a{color:var(--acc);text-decoration:none}
 
       <!-- Architecture tab -->
       <div class="tpanel" id="t-arch">
-        <div class="arch-grid" id="arch-grid">
-          <div class="arch-empty loading">Loading…</div>
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--surf)">
+          <span style="font-size:11px;color:var(--sub)">Force-directed graph · drag nodes · scroll to zoom</span>
+          <button onclick="reloadDiagram()" style="margin-left:auto;font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid var(--border);background:var(--surf2);color:var(--sub);cursor:pointer">⟳ Refresh</button>
         </div>
+        <iframe id="diag-frame" src="about:blank"
+          style="flex:1;border:none;background:var(--bg)"
+          title="Architecture diagram"></iframe>
       </div>
 
       <!-- Outputs tab -->
@@ -810,12 +815,28 @@ async function saveFile(btn, path, k) {
   } catch(e) { btn.disabled = false; btn.textContent = '⚠ Save failed'; }
 }
 
+// ── Architecture diagram ──────────────────────────────────────────────────────
+let _diagLoaded = false;
+
+function reloadDiagram() {
+  _diagLoaded = false;
+  loadDiagram();
+}
+
+function loadDiagram() {
+  if (_diagLoaded) return;
+  const frame = document.getElementById('diag-frame');
+  frame.src = '/api/diagram?' + Date.now();
+  _diagLoaded = true;
+}
+
 // ── Tab switching ─────────────────────────────────────────────────────────
 function swTab(el) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
   document.querySelectorAll('.tpanel').forEach(p => p.classList.remove('on'));
   el.classList.add('on');
   document.getElementById('t-' + el.dataset.t).classList.add('on');
+  if (el.dataset.t === 'arch') loadDiagram();
 }
 
 // ── Chat textarea auto-resize + Enter to send ─────────────────────────────

@@ -167,6 +167,19 @@ async def api_workspace_switch(req: SwitchReq):
     return {"ok": True, "workspace": str(p)}
 
 
+# ── Architecture diagram ──────────────────────────────────────────────────────
+
+@app.get("/api/diagram")
+async def api_diagram():
+    from vcs.diagram import InfrastructureDiagram
+    executor = _get_executor()
+    diag = InfrastructureDiagram(str(executor.workspace_dir))
+    resources = await asyncio.to_thread(diag.parse_resources)
+    edges = await asyncio.to_thread(diag.detect_relationships, resources)
+    html = await asyncio.to_thread(diag.generate_html, resources, edges)
+    return HTMLResponse(html)
+
+
 # ── State ─────────────────────────────────────────────────────────────────────
 
 @app.get("/api/state")
