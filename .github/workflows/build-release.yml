@@ -21,13 +21,10 @@ jobs:
         include:
           - os: macos-14          # Apple Silicon
             platform: macos-arm64
-            binary: terraai
           - os: ubuntu-22.04
             platform: linux-x64
-            binary: terraai
           - os: windows-2022
             platform: windows-x64
-            binary: terraai.exe
 
     runs-on: ${{ matrix.os }}
     name: Build (${{ matrix.platform }})
@@ -60,11 +57,11 @@ jobs:
             curl -fsSL "$BASE/${name}.tiktoken" -o "tiktoken_cache/${name}.tiktoken"
           done
 
-      - name: Build binary (macOS / Linux)
+      - name: Build CLI binary (macOS / Linux)
         if: runner.os != 'Windows'
         run: pyinstaller terraai.spec --noconfirm --log-level WARN
 
-      - name: Build binary (Windows)
+      - name: Build CLI binary (Windows)
         if: runner.os == 'Windows'
         shell: bash
         # Onedir payload + self-extracting Go launcher instead of plain
@@ -75,15 +72,22 @@ jobs:
         # near-instant on every run after.
         run: python scripts/package_windows.py
 
-      - name: Rename binary
+      - name: Build web binary (all platforms)
+        shell: bash
+        run: pyinstaller terraai-web.spec --noconfirm --log-level WARN
+
+      - name: Stage release binaries
         shell: bash
         run: |
           mkdir -p release
           if [ "${{ runner.os }}" = "Windows" ]; then
             cp dist/terraai-windows-x64.exe "release/terraai-${{ matrix.platform }}.exe"
+            cp dist/terraai-web.exe         "release/terraai-web-${{ matrix.platform }}.exe"
           else
-            cp dist/terraai "release/terraai-${{ matrix.platform }}"
-            chmod +x "release/terraai-${{ matrix.platform }}"
+            cp dist/terraai     "release/terraai-${{ matrix.platform }}"
+            cp dist/terraai-web "release/terraai-web-${{ matrix.platform }}"
+            chmod +x "release/terraai-${{ matrix.platform }}" \
+                     "release/terraai-web-${{ matrix.platform }}"
           fi
 
       - name: Sign & notarize (macOS only)
@@ -95,7 +99,6 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
-          # Import certificate into temporary keychain
           echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
           security create-keychain -p actions build.keychain
           security default-keychain -s build.keychain
@@ -105,25 +108,21 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: \
             -s -k actions build.keychain
 
-          BINARY="release/terraai-${{ matrix.platform }}"
-
-          # Sign
-          codesign --force --deep --options runtime \
-            --sign "Developer ID Application: $APPLE_TEAM_ID" "$BINARY"
-
-          # Zip for notarization
-          ditto -c -k --keepParent "$BINARY" "$BINARY.zip"
-
-          # Submit for notarization
-          xcrun notarytool submit "$BINARY.zip" \
-            --apple-id "$APPLE_ID" \
-            --password "$APPLE_APP_PASSWORD" \
-            --team-id "$APPLE_TEAM_ID" \
-            --wait
-
-          # Staple
-          xcrun stapler staple "$BINARY"
-          rm "$BINARY.zip" certificate.p12
+          for BINARY in \
+            "release/terraai-${{ matrix.platform }}" \
+            "release/terraai-web-${{ matrix.platform }}"; do
+            codesign --force --deep --options runtime \
+              --sign "Developer ID Application: $APPLE_TEAM_ID" "$BINARY"
+            ditto -c -k --keepParent "$BINARY" "$BINARY.zip"
+            xcrun notarytool submit "$BINARY.zip" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_APP_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --wait
+            xcrun stapler staple "$BINARY"
+            rm "$BINARY.zip"
+          done
+          rm certificate.p12
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -140,45 +139,48 @@ jobs:
         include:
           - os: macos-14
             platform: macos-arm64
-            binary: terraai-macos-arm64
+            cli: terraai-macos-arm64
+            web: terraai-web-macos-arm64
           - os: ubuntu-22.04
             platform: linux-x64
-            binary: terraai-linux-x64
+            cli: terraai-linux-x64
+            web: terraai-web-linux-x64
           - os: windows-2022
             platform: windows-x64
-            binary: terraai-windows-x64.exe
+            cli: terraai-windows-x64.exe
+            web: terraai-web-windows-x64.exe
 
     runs-on: ${{ matrix.os }}
     name: Test (${{ matrix.platform }})
 
     steps:
-      - name: Download binary
+      - name: Download artifact
         uses: actions/download-artifact@v4
         with:
           name: terraai-${{ matrix.platform }}
           path: ./release
 
-      - name: Mark executable (Unix)
+      - name: Mark executables (Unix)
         if: runner.os != 'Windows'
-        run: chmod +x ./release/${{ matrix.binary }}
+        run: chmod +x ./release/${{ matrix.cli }} ./release/${{ matrix.web }}
 
-      - name: Smoke test — imports, encoding, data files
+      - name: CLI — smoke test
         shell: bash
         env:
           PYTHONUTF8: "1"
           PYTHONIOENCODING: utf-8
-        run: ./release/${{ matrix.binary }} smoke
+        run: ./release/${{ matrix.cli }} smoke
 
-      - name: Non-interactive commands
+      - name: CLI — non-interactive commands
         shell: bash
         env:
           PYTHONUTF8: "1"
           PYTHONIOENCODING: utf-8
         run: |
-          ./release/${{ matrix.binary }} models
-          ./release/${{ matrix.binary }} providers
+          ./release/${{ matrix.cli }} models
+          ./release/${{ matrix.cli }} providers
 
-      - name: Wizard stdin test
+      - name: CLI — wizard stdin test
         shell: bash
         timeout-minutes: 2
         env:
@@ -188,13 +190,19 @@ jobs:
           # Pipe wizard answers: new-dir, name, skip-git, ollama(15), skip-provider, local-backend, quit
           # Row 15 = ollama/llama3.2 (no API key step): 6 free + 8 paid + first local
           printf 'n\nci-smoke\ns\n15\ns\n1\n/quit\n' \
-            | ./release/${{ matrix.binary }} || true
-          # If the wizard crashed, config.yaml will not have been written
+            | ./release/${{ matrix.cli }} || true
           if ! test -f ~/.terraai/config.yaml; then
             echo "FAIL: wizard did not save config — likely crashed before save()"
             exit 1
           fi
           echo "Wizard OK — config written to ~/.terraai/config.yaml"
+
+      - name: Web binary — help check
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: utf-8
+        run: ./release/${{ matrix.web }} --help
 
   release:
     needs: [build, test]
@@ -225,35 +233,48 @@ jobs:
 
             ### Downloads
 
-            | Platform | File |
-            |----------|------|
-            | macOS (Apple Silicon) | `terraai-macos-arm64` |
-            | Linux x86_64 | `terraai-linux-x64` |
-            | Windows x64 | `terraai-windows-x64.exe` |
+            | Platform | CLI (`terraai`) | Web Dashboard (`terraai-web`) |
+            |----------|----------------|-------------------------------|
+            | macOS (Apple Silicon) | `terraai-macos-arm64` | `terraai-web-macos-arm64` |
+            | Linux x86_64 | `terraai-linux-x64` | `terraai-web-linux-x64` |
+            | Windows x64 | `terraai-windows-x64.exe` | `terraai-web-windows-x64.exe` |
 
             ### Quick start
 
             ```bash
-            # macOS
+            # macOS — CLI
             chmod +x terraai-macos-arm64
             xattr -d com.apple.quarantine terraai-macos-arm64
             ./terraai-macos-arm64
 
+            # macOS — Web dashboard (opens browser at http://localhost:7820)
+            chmod +x terraai-web-macos-arm64
+            xattr -d com.apple.quarantine terraai-web-macos-arm64
+            ./terraai-web-macos-arm64
+
             # Linux
-            chmod +x terraai-linux-x64
-            ./terraai-linux-x64
+            chmod +x terraai-linux-x64 terraai-web-linux-x64
+            ./terraai-linux-x64          # CLI
+            ./terraai-web-linux-x64      # Web dashboard
 
             # Windows (PowerShell)
-            .\terraai-windows-x64.exe
+            .\terraai-windows-x64.exe         # CLI
+            .\terraai-web-windows-x64.exe     # Web dashboard
             ```
 
             > **macOS — "Apple could not verify" warning**
-            > The binary is not code-signed (no Apple Developer account required).
-            > Run `xattr -d com.apple.quarantine terraai-macos-arm64` in Terminal,
-            > or right-click the file → **Open** → **Open** to bypass Gatekeeper once.
+            > Run `xattr -d com.apple.quarantine <binary>` in Terminal,
+            > or right-click → **Open** → **Open** to bypass Gatekeeper once.
 
-            ### First run
+            ### Web dashboard options
             ```bash
-            ./terraai-macos-arm64        # launches the setup wizard automatically
+            ./terraai-web-macos-arm64 --port 8080       # custom port
+            ./terraai-web-macos-arm64 --no-browser      # headless / server mode
+            ./terraai-web-macos-arm64 --host 0.0.0.0    # expose on LAN
+            ```
+
+            ### First run (CLI)
+            ```bash
+            ./terraai-macos-arm64        # launches setup wizard automatically
             ./terraai-macos-arm64 setup  # re-run setup at any time
             ```
