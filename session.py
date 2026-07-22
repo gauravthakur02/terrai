@@ -78,6 +78,7 @@ HELP_TEXT = """
   [bold]/providers[/bold]             List supported Terraform providers
   [bold]/models[/bold]                List supported AI models
   [bold]/clear[/bold]                 Clear conversation history
+  [bold]/replay[/bold]                List this session's AI prompts; /replay <n> re-runs one
   [bold]/edit[/bold]                  Open last-generated HCL in $EDITOR before saving
   [bold]/web[/bold]                   Remind you to run terraai-web for the dashboard
   [bold]/help[/bold]                  Show this help
@@ -134,6 +135,7 @@ class TerraAISession:
         self.state_mgr = StateManager(config.workspace_dir)
         self._active_env = "default"
         self._last_ai_resp: AIResponse | None = None
+        self._session_prompts: list[str] = []
         self._ensure_git_init()
         self._prompt_pending_backend()
         history_path = Path.home() / ".terraai" / "history"
@@ -761,6 +763,34 @@ class TerraAISession:
             success("API key updated and saved.")
             info(f"Model: {self.config.model}")
 
+        elif command == "/replay":
+            prompts = self._session_prompts
+            if not prompts:
+                info("No AI prompts in this session yet.")
+                return
+            if not arg:
+                from rich.table import Table
+                from rich import box
+                t = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
+                t.add_column("#", style="bold cyan", justify="right")
+                t.add_column("Prompt")
+                for i, p in enumerate(prompts, 1):
+                    t.add_row(str(i), p)
+                console.print(t)
+                console.print(f"[dim]Use /replay <n> to re-run a prompt[/dim]")
+                return
+            try:
+                idx = int(arg.strip())
+            except ValueError:
+                error("Usage: /replay <number>")
+                return
+            if not 1 <= idx <= len(prompts):
+                error(f"Number must be between 1 and {len(prompts)}.")
+                return
+            chosen = prompts[idx - 1]
+            console.print(f"[dim]Replaying:[/dim] {chosen}")
+            self._handle_ai_request(chosen)
+
         elif command == "/edit":
             resp = self._last_ai_resp
             if not resp or not resp.has_hcl:
@@ -859,6 +889,7 @@ class TerraAISession:
             pass
 
     def _handle_ai_request(self, user_input: str) -> None:
+        self._session_prompts.append(user_input)
         workspace_context = self.workspace.get_context()
         ai_resp: AIResponse | None = None
 
