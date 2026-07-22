@@ -26,6 +26,7 @@ from ui import (
     success, warning, error, info, model_badge, resource_table,
     PROVIDER_ICONS, TerraAICompleter,
 )
+from security import lint as _security_lint, Finding as _Finding
 
 PROMPT_STYLE = Style.from_dict({
     "prompt": "ansicyan bold",
@@ -928,6 +929,13 @@ class TerraAISession:
         if ai_resp.has_hcl and not ai_resp.has_files and self.config.show_raw_hcl:
             hcl_panel(ai_resp.hcl)
 
+        if ai_resp.has_hcl or ai_resp.has_files:
+            _hcl_for_lint = (
+                "\n".join(f["content"] for f in ai_resp.files)
+                if ai_resp.has_files else ai_resp.hcl
+            )
+            _show_security_findings(_security_lint(_hcl_for_lint))
+
         if ai_resp.has_files:
             if ai_resp.is_destructive:
                 console.print("[bold red]⚠️  This action will DELETE resources.[/bold red]")
@@ -1147,6 +1155,24 @@ class TerraAISession:
 def _has_terraform_error(output: str) -> bool:
     """Return True if terraform output contains an error line."""
     return bool(re.search(r'(?m)^[ \t│]*Error:', output))
+
+
+def _show_security_findings(findings: list[_Finding]) -> None:
+    """Render security lint findings before the save prompt."""
+    if not findings:
+        return
+    has_high = any(f.severity == "HIGH" for f in findings)
+    border = "red" if has_high else "yellow"
+    lines = []
+    for f in findings:
+        color = "red" if f.severity == "HIGH" else ("yellow" if f.severity == "MEDIUM" else "dim white")
+        lines.append(f"  [{color}]▸ [{f.severity}][/{color}]  [dim]{f.code}[/dim]  {f.message}")
+    console.print(Panel(
+        "\n".join(lines),
+        title="[bold red]\U0001f512 Security Findings[/bold red]" if has_high else "[bold yellow]\U0001f512 Security Findings[/bold yellow]",
+        border_style=border,
+        padding=(0, 1),
+    ))
 
 
 def _handle_ai_error(exc: Exception, model: str) -> None:
