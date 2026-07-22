@@ -45,6 +45,9 @@ def _base() -> dict:
             'tiktoken_ext', 'tiktoken_ext.openai_public',
             # HCL2
             'hcl2',
+            # anyio / h11 — used by litellm's async HTTP layer, not just web stack
+            'anyio', 'anyio._backends._asyncio',
+            'h11', 'h11._connection', 'h11._events', 'h11._state',
         ] + core_hidden,
         hookspath=[],
         hooksconfig={},
@@ -77,8 +80,7 @@ def cli_analysis_kwargs() -> dict:
         # Internal CLI modules
         'session',
     ] + collect_submodules('setup') + collect_submodules('ui')
-    kwargs['excludes'] += ['fastapi', 'uvicorn', 'starlette', 'anyio', 'h11',
-                           'uvloop', 'httptools']
+    kwargs['excludes'] += ['fastapi', 'uvicorn', 'starlette', 'uvloop', 'httptools']
     return kwargs
 
 
@@ -95,8 +97,6 @@ def web_analysis_kwargs() -> dict:
         'uvicorn.protocols', 'uvicorn.protocols.http', 'uvicorn.protocols.http.auto',
         'uvicorn.lifespan', 'uvicorn.lifespan.off',
         'starlette', 'starlette.routing', 'starlette.responses',
-        'anyio', 'anyio._backends._asyncio',
-        'h11', 'h11._connection', 'h11._events', 'h11._state',
         # Typer for web/main.py
         'typer',
     ] + collect_submodules('web')

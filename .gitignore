@@ -47,9 +47,10 @@ override.tf.json
 Thumbs.db
 desktop.ini
 
-# ── Editor ────────────────────────────────────────────────────────────
+# ── Editor / AI tools ─────────────────────────────────────────────────
 .idea/
 .vscode/
+.claude/
 *.swp
 *.swo
 
