@@ -292,6 +292,8 @@ def root(
     provider: Optional[str] = typer.Option(None, "--provider", "-p", help="Default Terraform provider"),
     api_key: Optional[str] = typer.Option(None, "--api-key", "-k", help="API key for AI model", envvar="TERRAAI_API_KEY"),
     api_base: Optional[str] = typer.Option(None, "--api-base", help="Custom API base URL (for Ollama, Azure OpenAI, etc.)"),
+    web: bool = typer.Option(False, "--web", help="Launch browser dashboard instead of REPL"),
+    port: int = typer.Option(7820, "--port", help="Port for the web dashboard (default: 7820)"),
 ) -> None:
     """
     [bold cyan]🌍 TerraAI[/bold cyan] — Manage cloud & on-prem infrastructure with natural language.
@@ -354,6 +356,12 @@ def root(
     # Apply saved Azure credentials to the process environment
     if config.default_provider == "azure":
         config.apply_azure_env()
+
+    if web:
+        from web.server import launch as _web_launch
+        console.print(f"[dim]Starting web UI on http://localhost:{port} ...[/dim]")
+        _web_launch(config, port=port)
+        return
 
     session = TerraAISession(config)
     session.run()
