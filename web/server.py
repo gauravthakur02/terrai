@@ -344,8 +344,8 @@ async def api_save(req: SaveReq):
 
 # ── Launch ────────────────────────────────────────────────────────────────────
 
-def launch(config=None, host: str = "127.0.0.1", port: int = 7820):
-    """Start the TerraAI web server and open browser."""
+def launch(config=None, host: str = "127.0.0.1", port: int = 7820, open_browser: bool = True):
+    """Start the TerraAI web server, optionally opening the browser."""
     global _config
     if config is not None:
         _config = config
@@ -355,13 +355,13 @@ def launch(config=None, host: str = "127.0.0.1", port: int = 7820):
 
     url = f"http://{host}:{port}"
 
-    def _open():
-        import time
-        time.sleep(0.9)
-        webbrowser.open(url)
+    if open_browser:
+        def _open():
+            import time
+            time.sleep(1.5)
+            webbrowser.open(url)
+        threading.Thread(target=_open, daemon=True).start()
 
-    threading.Thread(target=_open, daemon=True).start()
-    print(f"\n  TerraAI Web UI  →  {url}\n  Press Ctrl+C to stop.\n", flush=True)
     uvicorn.run(
         app,
         host=host,
