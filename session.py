@@ -971,20 +971,24 @@ class TerraAISession:
                     success(f"Saved → {p}")
                 hcl_file = ", ".join(f["path"] for f in ai_resp.files)
                 self._auto_commit(ai_resp, hcl_file, user_input)
+                validated = self._validate_and_autofix(ai_resp, user_input)
 
                 if action == "p":
-                    section("Terraform Plan", "📋")
-                    plan_output = ""
-                    for line in self.executor.plan():
-                        plan_output += line
-                        _print_terraform_line(line)
-                    stats = self.executor.parse_plan_stats(plan_output)
-                    if any(stats[k] for k in ("add", "change", "destroy")):
-                        plan_summary(plan_output, stats)
-                        if not _has_terraform_error(plan_output):
-                            self._show_cost_estimate()
-                    if _has_terraform_error(plan_output):
-                        self._explain_terraform_error(plan_output, "plan")
+                    if validated is None:
+                        warning("Skipping plan — validation did not pass")
+                    else:
+                        section("Terraform Plan", "📋")
+                        plan_output = ""
+                        for line in self.executor.plan():
+                            plan_output += line
+                            _print_terraform_line(line)
+                        stats = self.executor.parse_plan_stats(plan_output)
+                        if any(stats[k] for k in ("add", "change", "destroy")):
+                            plan_summary(plan_output, stats)
+                            if not _has_terraform_error(plan_output):
+                                self._show_cost_estimate()
+                        if _has_terraform_error(plan_output):
+                            self._explain_terraform_error(plan_output, "plan")
             else:
                 info("Files not saved (you can ask again or modify your request)")
 
@@ -1013,20 +1017,24 @@ class TerraAISession:
                 saved_path = self.workspace.write_hcl(suggested_file, ai_resp.hcl)
                 success(f"Saved → {saved_path}")
                 self._auto_commit(ai_resp, suggested_file, user_input)
+                validated = self._validate_and_autofix(ai_resp, user_input, saved_filename=suggested_file)
 
                 if action == "p":
-                    section("Terraform Plan", "📋")
-                    plan_output = ""
-                    for line in self.executor.plan():
-                        plan_output += line
-                        _print_terraform_line(line)
-                    stats = self.executor.parse_plan_stats(plan_output)
-                    if any(stats[k] for k in ("add", "change", "destroy")):
-                        plan_summary(plan_output, stats)
-                        if not _has_terraform_error(plan_output):
-                            self._show_cost_estimate()
-                    if _has_terraform_error(plan_output):
-                        self._explain_terraform_error(plan_output, "plan")
+                    if validated is None:
+                        warning("Skipping plan — validation did not pass")
+                    else:
+                        section("Terraform Plan", "📋")
+                        plan_output = ""
+                        for line in self.executor.plan():
+                            plan_output += line
+                            _print_terraform_line(line)
+                        stats = self.executor.parse_plan_stats(plan_output)
+                        if any(stats[k] for k in ("add", "change", "destroy")):
+                            plan_summary(plan_output, stats)
+                            if not _has_terraform_error(plan_output):
+                                self._show_cost_estimate()
+                        if _has_terraform_error(plan_output):
+                            self._explain_terraform_error(plan_output, "plan")
 
             elif action == "r":
                 new_name = console.input("[bold]Enter filename (without .tf): [/bold]").strip()
@@ -1034,6 +1042,7 @@ class TerraAISession:
                     saved_path = self.workspace.write_hcl(new_name, ai_resp.hcl)
                     success(f"Saved → {saved_path}")
                     self._auto_commit(ai_resp, new_name + ".tf", user_input)
+                    self._validate_and_autofix(ai_resp, user_input, saved_filename=new_name)
             else:
                 info("HCL not saved (you can ask again or modify your request)")
 
@@ -1072,6 +1081,98 @@ class TerraAISession:
                 hcl_file=hcl_file,
             )
             self.drift.snapshot_state(sha)
+
+    def _validate_and_autofix(
+        self,
+        ai_resp: AIResponse,
+        user_input: str,
+        saved_filename: str | None = None,
+        max_retries: int = 2,
+    ) -> AIResponse | None:
+        """Run `terraform validate` after saving; auto-fix with AI on failure.
+
+        Returns the (possibly updated) AIResponse if validation ultimately passes,
+        or None if it still fails after max_retries attempts.
+        Skips AI retry when the error requires `terraform init` instead.
+        """
+        if not self.executor.is_installed():
+            return ai_resp
+
+        for attempt in range(max_retries + 1):
+            result = self.executor.validate()
+
+            if result.success:
+                if attempt == 0:
+                    console.print("[dim]✓ terraform validate passed[/dim]")
+                else:
+                    success(f"Validation passed after {attempt} auto-fix attempt{'s' if attempt > 1 else ''}")
+                self._last_ai_resp = ai_resp
+                return ai_resp
+
+            error_text = (result.stdout + "\n" + result.stderr).strip()
+
+            # Init/provider errors can't be fixed by rewriting HCL
+            if _VALIDATE_INIT_ERR.search(error_text):
+                warning("Validation failed: providers not initialized — run /init then try again")
+                return None
+
+            if attempt == max_retries:
+                error(f"Validation still failing after {max_retries} auto-fix attempt{'s' if max_retries > 1 else ''}")
+                self._explain_terraform_error(error_text, "validate")
+                return None
+
+            # Show first error line for context
+            first_err = next(
+                (ln.strip() for ln in error_text.splitlines()
+                 if "Error:" in ln or ln.strip().startswith("│")),
+                "",
+            )
+            console.print(
+                f"\n[yellow]⚡ Validation failed — auto-fixing "
+                f"(attempt {attempt + 1}/{max_retries})...[/yellow]"
+            )
+            if first_err:
+                console.print(f"[dim]{first_err}[/dim]")
+
+            fix_prompt = (
+                "The Terraform HCL you just generated failed `terraform validate`.\n\n"
+                f"Error:\n```\n{error_text}\n```\n\n"
+                "Fix the HCL so it passes validation. Return corrected Terraform HCL only."
+            )
+            workspace_context = self.workspace.get_context()
+            try:
+                with Live(
+                    Spinner("dots", text="[magenta]🤖 Auto-fixing...[/magenta]"),
+                    refresh_per_second=10,
+                    console=console,
+                ):
+                    fixed_resp = self.client.ask_sync(fix_prompt, workspace_context)
+            except Exception as exc:
+                error(f"Auto-fix request failed: {exc}")
+                return None
+
+            if not fixed_resp or not (fixed_resp.has_hcl or fixed_resp.has_files):
+                warning("Auto-fix did not return usable HCL")
+                return None
+
+            if fixed_resp.has_files:
+                self.workspace.write_files(fixed_resp.files)
+            elif saved_filename:
+                self.workspace.write_hcl(saved_filename, fixed_resp.hcl)
+            else:
+                warning("Cannot write auto-fix: no target filename")
+                return None
+
+            fix_sha = self.git.commit(
+                f"fix: auto-corrected terraform validate error (attempt {attempt + 1})",
+                author="TerraAI",
+            )
+            if fix_sha:
+                console.print(f"[dim]📝 Fix committed [{fix_sha[:8]}][/dim]")
+
+            ai_resp = fixed_resp
+
+        return None  # unreachable; satisfies type checker
 
     def _show_cost_estimate(self) -> None:
         """Estimate costs for the current plan file and display a summary panel."""
@@ -1150,6 +1251,15 @@ class TerraAISession:
                 padding=(1, 2),
             ))
             console.print()
+
+
+_VALIDATE_INIT_ERR = re.compile(
+    r'Module not installed'
+    r'|Inconsistent dependency lock file'
+    r'|Failed to query available provider packages'
+    r'|Provider requirements cannot be satisfied',
+    re.IGNORECASE,
+)
 
 
 def _has_terraform_error(output: str) -> bool:
