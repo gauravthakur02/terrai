@@ -1,21 +1,17 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec for TerraAI — produces a single-file executable.
-Used for macOS/Linux releases, and as the plain Windows fallback build.
-Build with:  pyinstaller terraai.spec
-
-Shared Analysis() config lives in pyinstaller_common.py — edit there, not
-here, so this and terraai-onedir.spec can't drift apart.
+PyInstaller spec for TerraAI Web Dashboard — produces a single-file server binary.
+Build with:  pyinstaller terraai-web.spec
 """
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path('').resolve()))
-from pyinstaller_common import cli_analysis_kwargs
+from pyinstaller_common import web_analysis_kwargs
 
 block_cipher = None
 
-a = Analysis(**cli_analysis_kwargs(), cipher=block_cipher)
+a = Analysis(**web_analysis_kwargs(), cipher=block_cipher)
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
@@ -26,7 +22,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='terraai',
+    name='terraai-web',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

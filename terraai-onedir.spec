@@ -13,11 +13,11 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path('').resolve()))
-from pyinstaller_common import analysis_kwargs
+from pyinstaller_common import cli_analysis_kwargs
 
 block_cipher = None
 
-a = Analysis(**analysis_kwargs(), cipher=block_cipher)
+a = Analysis(**cli_analysis_kwargs(), cipher=block_cipher)
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 

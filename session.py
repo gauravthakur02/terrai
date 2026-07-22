@@ -74,8 +74,7 @@ HELP_TEXT = """
   [bold]/providers[/bold]             List supported Terraform providers
   [bold]/models[/bold]                List supported AI models
   [bold]/clear[/bold]                 Clear conversation history
-  [bold]/web[/bold]                   Open browser dashboard (default port 7820)
-  [bold]/web <port>[/bold]            Open dashboard on a custom port
+  [bold]/web[/bold]                   Remind you to run terraai-web for the dashboard
   [bold]/help[/bold]                  Show this help
   [bold]/exit[/bold]                  Exit TerraAI
 
@@ -753,10 +752,7 @@ class TerraAISession:
             info(f"Model: {self.config.model}")
 
         elif command == "/web":
-            from web.server import launch as _web_launch
-            port = int(arg) if arg and arg.isdigit() else 7820
-            console.print(f"[dim]Starting web UI on http://localhost:{port} ...[/dim]")
-            _web_launch(self.config, port=port)
+            console.print("[dim]Run [bold]terraai-web[/bold] to launch the web dashboard.[/dim]")
 
         elif command in ("/exit", "/quit", "/q"):
             console.print("[dim]Goodbye! 👋[/dim]")

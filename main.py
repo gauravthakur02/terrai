@@ -292,8 +292,6 @@ def root(
     provider: Optional[str] = typer.Option(None, "--provider", "-p", help="Default Terraform provider"),
     api_key: Optional[str] = typer.Option(None, "--api-key", "-k", help="API key for AI model", envvar="TERRAAI_API_KEY"),
     api_base: Optional[str] = typer.Option(None, "--api-base", help="Custom API base URL (for Ollama, Azure OpenAI, etc.)"),
-    web: bool = typer.Option(False, "--web", help="Auto-open browser when the web dashboard starts"),
-    port: int = typer.Option(7820, "--port", help="Port for the web dashboard (default: 7820)"),
 ) -> None:
     """
     [bold cyan]🌍 TerraAI[/bold cyan] — Manage cloud & on-prem infrastructure with natural language.
@@ -354,23 +352,6 @@ def root(
     # Apply saved Azure credentials to the process environment
     if config.default_provider == "azure":
         config.apply_azure_env()
-
-    # Start web server in a background daemon thread so the REPL is available
-    # immediately. --web opens the browser automatically; without it the server
-    # starts silently and the URL is printed for the user to open manually.
-    import threading as _threading
-
-    _open_browser = bool(web)
-
-    def _web_bg():
-        try:
-            from web.server import launch as _web_launch
-            _web_launch(config, port=port, open_browser=_open_browser)
-        except OSError:
-            pass  # port already in use — skip silently
-
-    _threading.Thread(target=_web_bg, daemon=True).start()
-    console.print(f"[dim]Web UI → http://localhost:{port}[/dim]")
 
     from session import TerraAISession
     session = TerraAISession(config)
