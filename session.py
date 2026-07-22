@@ -24,7 +24,7 @@ from state import StateManager, BackendWizard, BACKEND_DISPLAY
 from ui import (
     console, banner, section, hcl_panel, plan_summary, ai_response,
     success, warning, error, info, model_badge, resource_table,
-    PROVIDER_ICONS,
+    PROVIDER_ICONS, TerraAICompleter,
 )
 
 PROMPT_STYLE = Style.from_dict({
@@ -138,10 +138,13 @@ class TerraAISession:
         self._prompt_pending_backend()
         history_path = Path.home() / ".terraai" / "history"
         history_path.parent.mkdir(parents=True, exist_ok=True)
+        self._completer = TerraAICompleter(lambda: self.config.workspace_dir)
         self._prompt_session = PromptSession(
             history=FileHistory(str(history_path)),
             auto_suggest=AutoSuggestFromHistory(),
             style=PROMPT_STYLE,
+            completer=self._completer,
+            complete_while_typing=False,
         )
 
     def _ensure_git_init(self) -> None:
@@ -200,6 +203,7 @@ class TerraAISession:
         self.drift = DriftDetector(self.config.workspace_dir)
         self.state_mgr = StateManager(self.config.workspace_dir)
         self._active_env = "default"
+        self._completer.invalidate()
 
         self._ensure_git_init()
         self._prompt_pending_backend()
