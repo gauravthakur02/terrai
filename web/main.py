@@ -1,6 +1,22 @@
 """Entry point for the terraai-web binary."""
 from __future__ import annotations
+import sys
 import typer
+
+# Force UTF-8 on Windows so Rich can render unicode to the console.
+# Must run before any Rich/typer imports.
+if sys.platform == 'win32':
+    try:
+        import ctypes
+        ctypes.windll.kernel32.SetConsoleOutputCP(65001)
+        ctypes.windll.kernel32.SetConsoleCP(65001)
+    except Exception:
+        pass
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
 
 app = typer.Typer(add_completion=False)
 
@@ -13,22 +29,22 @@ def main(
     workspace: str = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
 ):
     """
-    [bold cyan]🌍 TerraAI Web Dashboard[/bold cyan]
+    TerraAI Web Dashboard
 
     Starts the local web UI at http://<host>:<port> and opens it in your browser.
 
-    [dim]Examples:[/dim]
+    Examples:
 
-      [bold]# Default: localhost:7820, opens browser[/bold]
+      # Default: localhost:7820, opens browser
       terraai-web
 
-      [bold]# Custom port[/bold]
+      # Custom port
       terraai-web --port 8080
 
-      [bold]# Expose on LAN (e.g. for team)[/bold]
+      # Expose on LAN (e.g. for team)
       terraai-web --host 0.0.0.0 --port 7820 --no-browser
 
-      [bold]# Point at a specific workspace[/bold]
+      # Point at a specific workspace
       terraai-web --workspace ~/terraai-workspaces/prod
     """
     from pathlib import Path
@@ -40,7 +56,7 @@ def main(
         config.workspace_dir = str(Path(workspace).expanduser().resolve())
 
     url = f"http://{host}:{port}"
-    typer.echo(f"\n  TerraAI Web UI  →  {url}\n  Press Ctrl+C to stop.\n")
+    typer.echo(f"\n  TerraAI Web UI  ->  {url}\n  Press Ctrl+C to stop.\n")
     launch(config, host=host, port=port, open_browser=not no_browser)
 
 
