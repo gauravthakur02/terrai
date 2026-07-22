@@ -690,7 +690,8 @@ async function sendChat() {
     await ssePost('/api/chat', { message: msg }, (d) => {
       if (d.type === 'delta') {
         buf += d.text;
-        aiEl.textContent = buf;
+        // If the buffer looks like a JSON blob, show a progress indicator instead
+        aiEl.textContent = buf.trimStart().startsWith('{') ? '⏳ Generating response…' : buf;
         document.getElementById('msgs').scrollTop = 9999;
       } else if (d.type === 'done') {
         finalizeAiMsg(aiEl.parentElement, buf, d);
@@ -721,9 +722,47 @@ function showThinking() {
   return wrap.querySelector('.ma-body');
 }
 
+function formatAiText(rawBuf, resp) {
+  // If the buffer is a JSON structured response, render it as readable prose
+  let parsed = null;
+  try { if (rawBuf.trimStart().startsWith('{')) parsed = JSON.parse(rawBuf); } catch {}
+
+  if (!parsed && !resp) return rawBuf;
+
+  const p = parsed || {};
+  const parts = [];
+
+  // Summary line
+  const summary = (resp && resp.summary) || p.summary || '';
+  if (summary) parts.push(summary);
+
+  // Resources
+  const resources = p.resources || [];
+  const acting = resources.filter(r => r.action && r.action !== 'none');
+  if (acting.length) {
+    parts.push('');
+    const labels = { create: '+ create', update: '~ update', delete: '- delete', none: '  ' };
+    acting.forEach(r => {
+      const lbl = labels[r.action] || r.action;
+      parts.push(`${lbl}  ${r.type}.${r.name}`);
+    });
+  }
+
+  // Next steps
+  const nextSteps = p.next_steps || [];
+  const interesting = nextSteps.filter(s => !/no further action/i.test(s));
+  if (interesting.length) {
+    parts.push('');
+    interesting.forEach(s => parts.push('→ ' + s));
+  }
+
+  return parts.join('\n') || rawBuf;
+}
+
 function finalizeAiMsg(wrap, text, resp) {
   if (!wrap) return;
-  let html = `<div class="ma-lbl">TerraAI</div><div class="ma-body">${esc(text)}`;
+  const displayText = formatAiText(text, resp);
+  let html = `<div class="ma-lbl">TerraAI</div><div class="ma-body">${esc(displayText)}`;
 
   const hcl = resp && resp.hcl && resp.hcl.trim();
   const files = resp && resp.files && resp.files.length ? resp.files : null;
