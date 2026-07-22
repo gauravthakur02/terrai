@@ -2,7 +2,7 @@
 
 > AI-powered Terraform assistant — manage cloud & on-prem infrastructure with natural language.
 
-TerraAI is a feature-rich interactive CLI that lets you describe infrastructure in plain English and turns it into production-ready Terraform HCL. It auto-version-controls every change with AI-written semantic commits, maintains a human-readable infrastructure changelog (the Chronicle), stores credentials securely in your OS keyring, and supports 8 state backends — local, cloud, or fully on-prem.
+TerraAI is a feature-rich interactive CLI that lets you describe infrastructure in plain English and turns it into production-ready Terraform HCL. It auto-version-controls every change with AI-written semantic commits, maintains a human-readable infrastructure changelog (the Chronicle), stores credentials securely in your OS keyring, supports 8 state backends, scans generated HCL for security misconfigurations and hardcoded secrets before every save, and offers tab-completion for slash commands and Terraform resource names.
 
 ---
 
@@ -15,6 +15,7 @@ TerraAI is a feature-rich interactive CLI that lets you describe infrastructure 
 - [Credential Storage](#credential-storage)
 - [Azure Authentication](#azure-authentication)
 - [Architecture Diagram](#architecture-diagram)
+- [Security Checks](#security-checks)
 - [TerraAI Chronicle](#terraai-chronicle-version-control)
 - [State Backend Options](#state-backend-options)
 - [AI Model Support](#ai-model-support)
@@ -42,7 +43,16 @@ You type:   "create an Azure VNet with 2 subnets in East US"
            { intent, hcl, resources, warnings, next_steps }
                         ↓
            TerraAI shows HCL with syntax highlighting
-           You approve → saved to networking.tf
+           + proactive next-step suggestions
+                        ↓
+           Security linter scans for misconfigurations
+           (open ports, public storage, disabled encryption …)
+                        ↓
+           You approve → secrets scanner runs as a blocking gate
+           → saved to networking.tf
+                        ↓
+           terraform validate runs automatically;
+           if it fails, AI auto-fixes up to 2 times
                         ↓
            Auto git commit  +  INFRASTRUCTURE.md updated
            + state snapshot taken  (TerraAI Chronicle)
@@ -126,6 +136,13 @@ export OPENAI_API_KEY=sk-...
 ./terraai --model gpt-4o --provider azure
 ```
 
+### Tab-completion
+
+The REPL supports tab-completion (press **Tab**):
+
+- **Slash commands** — all `/commands` complete from the first keystroke after `/`
+- **Resource addresses** — type 3+ characters of a resource name and Tab completes addresses found in your workspace's `.tf` files and `terraform.tfstate` (e.g. `azurerm_virtual` → `azurerm_virtual_network.vnet_prod`)
+
 ### Example session
 
 ```
@@ -146,13 +163,13 @@ resource "azurerm_resource_group" "rg_prod" {
   tags     = var.tags
 }
 
-💾 Save to resource_group.tf? (y=yes, r=rename, n=skip, p=plan after save): y
-✅ Saved → ~/my-infra/resource_group.tf
-📝 Auto-committed [a1b2c3d4] — /history to view
-
 💡 Next steps:
   ▸ Run /init to download the azurerm provider
-  ▸ Set ARM_SUBSCRIPTION_ID before /apply
+  ▸ Add a virtual network in the same resource group
+
+💾 Save to resource_group.tf? (y=yes, e=edit, r=rename, n=skip, p=plan after save): y
+✅ Saved → ~/my-infra/resource_group.tf
+📝 Auto-committed [a1b2c3d4] — /history to view
 
 ☁️ azure[my-infra] ❯ /init
 ☁️ azure[my-infra] ❯ /plan
@@ -343,6 +360,50 @@ TerraAI parses both `terraform.tfstate` (deployed resources) and all `*.tf` file
 
 ---
 
+## Security Checks
+
+TerraAI runs two automatic security passes on every AI-generated HCL — no configuration needed.
+
+### Security linter (advisory)
+
+After generating HCL, TerraAI scans for common misconfigurations and shows colour-coded warnings **before** the save prompt. Findings are advisory — you can still save.
+
+| Rule | Severity | What it catches |
+|------|----------|----------------|
+| SEC001 | HIGH | Encryption explicitly disabled (`encrypted = false`, `storage_encrypted = false`) |
+| SEC002 | HIGH | SSH (22) / RDP (3389) / all ports open to 0.0.0.0/0 |
+| SEC003 | MEDIUM | Ingress rule allows unrestricted internet traffic |
+| SEC004 | HIGH | S3 or GCS bucket with a public-read ACL |
+| SEC005 | MEDIUM | Azure public blob access enabled; S3 public blocking disabled |
+| SEC006 | HIGH | Potential hardcoded secret value in an HCL field |
+
+### Secrets scanner (blocking gate)
+
+After you type `y` to save, TerraAI scans for hardcoded credentials before writing to disk. If any are found, it displays a redacted preview and requires explicit confirmation to proceed.
+
+**Structural patterns** (high confidence — format is inherently secret-shaped):
+
+- AWS Access Key IDs (`AKIA…`)
+- GCP API Keys (`AIza…`)
+- GitHub personal access tokens (`ghp_…`, `github_pat_…`)
+- GitLab personal access tokens (`glpat-…`)
+- Slack bot / user / app tokens (`xoxb-…`, `xox[psa]-…`)
+- PEM private keys (`-----BEGIN … PRIVATE KEY-----`)
+- Azure Storage account keys (`AccountKey=…`)
+- Azure SAS signatures (`sig=…`)
+
+**Named-field patterns** (field name makes context clear):
+
+`password`, `api_key`, `access_token`, `client_secret`, `connection_string` — only flagged when the value is a non-trivial literal (8–20+ chars depending on field type).
+
+Variable references (`var.`, `${`, `data.`, `module.`, `local.`) and placeholder strings (`changeme`, `your-key-here`, `example`, etc.) are filtered automatically — no false positives for parameterised HCL.
+
+### Auto-fix on validate failure
+
+After saving, `terraform validate` runs automatically. If it fails, TerraAI sends the error back to the AI model and retries the fix up to **2 times**. Each successful fix is committed separately. Pure provider/init errors (missing `terraform init`) are skipped — auto-fix only runs where the AI can reasonably correct the HCL.
+
+---
+
 ## TerraAI Chronicle (Version Control)
 
 Every time you save AI-generated HCL, TerraAI automatically:
@@ -497,6 +558,13 @@ ollama pull codellama          # download the model (~4 GB)
 | `/files` | List `.tf` files in workspace |
 | `/diagram [file]` | Generate interactive architecture diagram |
 
+### Session
+
+| Command | Description |
+|---------|-------------|
+| `/edit` | Open the last-generated HCL in `$EDITOR` (or `$VISUAL` / nano / vi fallback) before saving |
+| `/replay` | Show numbered history of AI prompts from this session; re-run one by number (`/replay 3`) |
+
 ### Version Control
 
 | Command | Description |
@@ -566,7 +634,7 @@ All Terraform files are written to your **workspace directory** — never into t
 ├── backend.tf               ← state backend config (from /backend set)
 │
 ├── INFRASTRUCTURE.md        ← AI-authored changelog (auto-updated)
-���── architecture.html        ← interactive diagram (from /diagram)
+├── architecture.html        ← interactive diagram (from /diagram)
 ├── .gitignore               ← auto-created on first run
 │
 ├── .git/                    ← git repo (auto-initialised)
@@ -611,14 +679,14 @@ terraai/
 ├── main.py                  # CLI entry point (Typer) — root flags, subcommands
 ├── session.py               # Interactive REPL — command routing, AI flow
 ├── demo.py                  # Standalone demo (no API key needed)
-├���─ install.sh               # Installer — creates .venv and launcher script
+├── install.sh               # Installer — creates .venv and launcher script
 ├── build.sh                 # macOS / Linux PyInstaller build
 ├── build.bat                # Windows PyInstaller build
 ├── terraai.spec             # PyInstaller spec (cross-platform config)
 ├── requirements.txt
 │
 ├── .github/
-│   ��── workflows/
+│   └── workflows/
 │       └── build-release.yml  # CI: builds all 4 platform binaries on git tag push
 │
 ├── ai/
@@ -645,8 +713,13 @@ terraai/
 │   ├── backends.py          # 8 backend types → HCL generators
 │   └── manager.py           # Multi-env routing, BackendWizard, migration
 │
+├── security/
+│   ├── linter.py            # Advisory security linter (SEC001–SEC006)
+│   └── secrets.py           # Blocking secrets scanner (AWS/GCP/GitHub/Azure/PEM patterns)
+│
 ├── ui/
 │   ├── console.py           # Rich themed console
+│   ├── completer.py         # Tab-completion (slash commands + resource addresses)
 │   └── panels.py            # HCL panels, plan tables, resource tables
 │
 └── providers/
@@ -678,8 +751,8 @@ build.bat --clean
 Push a version tag to trigger a multi-platform release:
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.3.0
+git push origin v0.3.0
 # GitHub Actions builds macos-arm64, macos-x64, linux-x64, windows-x64
 # All 4 binaries are attached to the GitHub Release automatically
 ```
