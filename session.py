@@ -1,6 +1,10 @@
 from __future__ import annotations
+import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
@@ -74,6 +78,7 @@ HELP_TEXT = """
   [bold]/providers[/bold]             List supported Terraform providers
   [bold]/models[/bold]                List supported AI models
   [bold]/clear[/bold]                 Clear conversation history
+  [bold]/edit[/bold]                  Open last-generated HCL in $EDITOR before saving
   [bold]/web[/bold]                   Remind you to run terraai-web for the dashboard
   [bold]/help[/bold]                  Show this help
   [bold]/exit[/bold]                  Exit TerraAI
@@ -128,6 +133,7 @@ class TerraAISession:
         self.drift = DriftDetector(config.workspace_dir)
         self.state_mgr = StateManager(config.workspace_dir)
         self._active_env = "default"
+        self._last_ai_resp: AIResponse | None = None
         self._ensure_git_init()
         self._prompt_pending_backend()
         history_path = Path.home() / ".terraai" / "history"
@@ -751,6 +757,32 @@ class TerraAISession:
             success("API key updated and saved.")
             info(f"Model: {self.config.model}")
 
+        elif command == "/edit":
+            resp = self._last_ai_resp
+            if not resp or not resp.has_hcl:
+                info("No HCL to edit — generate something first.")
+                return
+            resp.hcl = self._open_in_editor(resp.hcl)
+            hcl_panel(resp.hcl)
+            suggested_file = self.workspace.suggest_filename(
+                resp.intent, resp.providers, resp.resources, resp.hcl
+            )
+            console.print(f"\n[dim]Suggested file:[/dim] [bold]{suggested_file}[/bold]")
+            save_action = console.input(
+                f"[bold cyan]💾 Save to [white]{suggested_file}[/white]? "
+                f"([green]y[/green]=yes, [yellow]r[/yellow]=rename, [red]n[/red]=skip): [/bold cyan]"
+            ).strip().lower()
+            if save_action in ("y", "yes"):
+                saved_path = self.workspace.write_hcl(suggested_file, resp.hcl)
+                success(f"Saved → {saved_path}")
+            elif save_action == "r":
+                new_name = console.input("[bold]Enter filename (without .tf): [/bold]").strip()
+                if new_name:
+                    saved_path = self.workspace.write_hcl(new_name, resp.hcl)
+                    success(f"Saved → {saved_path}")
+            else:
+                info("Not saved.")
+
         elif command == "/web":
             console.print("[dim]Run [bold]terraai-web[/bold] to launch the web dashboard.[/dim]")
 
@@ -760,6 +792,34 @@ class TerraAISession:
 
         else:
             error(f"Unknown command: {command}. Type /help for available commands.")
+
+    def _open_in_editor(self, content: str) -> str:
+        """Write content to a temp .tf file, open $EDITOR, return edited content."""
+        editor = os.environ.get("EDITOR") or os.environ.get("VISUAL")
+        if not editor:
+            for candidate in ("nano", "vi", "vim", "notepad.exe", "notepad"):
+                if shutil.which(candidate):
+                    editor = candidate
+                    break
+        if not editor:
+            error("No editor found — set $EDITOR in your shell (e.g. export EDITOR=nano).")
+            return content
+
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".tf")
+        try:
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            subprocess.run([editor, tmp_path], check=False)
+            with open(tmp_path, encoding="utf-8") as f:
+                return f.read()
+        except Exception as exc:
+            error(f"Editor error: {exc}")
+            return content
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
     def _handle_diagram(self, arg: str) -> None:
         """Generate and open an interactive architecture diagram."""
@@ -810,6 +870,8 @@ class TerraAISession:
         if not ai_resp:
             error("No response from AI")
             return
+
+        self._last_ai_resp = ai_resp
 
         section(f"{ai_resp.intent.upper()} — {ai_resp.summary[:60]}", PROVIDER_ICONS.get(
             ai_resp.providers[0] if ai_resp.providers else "unknown", "🌐"
@@ -892,11 +954,17 @@ class TerraAISession:
             )
 
             console.print(f"\n[dim]Suggested file:[/dim] [bold]{suggested_file}[/bold]")
-            action = console.input(
-                f"[bold cyan]💾 Save to [white]{suggested_file}[/white]? "
-                f"([green]y[/green]=yes, [yellow]r[/yellow]=rename, [red]n[/red]=skip, "
-                f"[blue]p[/blue]=plan after save): [/bold cyan]"
-            ).strip().lower()
+            while True:
+                action = console.input(
+                    f"[bold cyan]💾 Save to [white]{suggested_file}[/white]? "
+                    f"([green]y[/green]=yes, [yellow]r[/yellow]=rename, [magenta]e[/magenta]=edit, "
+                    f"[red]n[/red]=skip, [blue]p[/blue]=plan after save): [/bold cyan]"
+                ).strip().lower()
+                if action == "e":
+                    ai_resp.hcl = self._open_in_editor(ai_resp.hcl)
+                    hcl_panel(ai_resp.hcl)
+                    continue
+                break
 
             if action in ("y", "yes", "p"):
                 saved_path = self.workspace.write_hcl(suggested_file, ai_resp.hcl)
@@ -931,7 +999,6 @@ class TerraAISession:
             if s and "no further action" not in s.lower()
         ][:2]
         if hints:
-            from rich.panel import Panel
             hint_text = "\n".join(f"  [cyan]▸[/cyan] {h}" for h in hints)
             console.print(Panel(
                 hint_text,
