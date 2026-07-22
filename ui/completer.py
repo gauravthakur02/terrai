@@ -17,8 +17,8 @@ SLASH_COMMANDS: list[str] = sorted([
     "/chronicle", "/clear", "/config", "/cost", "/destroy", "/diagram",
     "/diff", "/drift", "/edit", "/exit", "/files", "/help", "/history",
     "/init", "/model", "/models", "/outputs", "/plan", "/providers",
-    "/q", "/quit", "/resources", "/rollback", "/state", "/structure",
-    "/tag", "/tags", "/web", "/workspace", "/workspaces",
+    "/q", "/quit", "/replay", "/resources", "/rollback", "/state",
+    "/structure", "/tag", "/tags", "/web", "/workspace", "/workspaces",
 ])
 
 _CACHE_TTL = 5.0  # seconds between re-reads of workspace files
