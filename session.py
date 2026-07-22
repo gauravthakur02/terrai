@@ -926,10 +926,19 @@ class TerraAISession:
             else:
                 info("HCL not saved (you can ask again or modify your request)")
 
-        if ai_resp.next_steps:
-            console.print("\n[bold cyan]💡 Suggested next steps:[/bold cyan]")
-            for step in ai_resp.next_steps:
-                console.print(f"  [dim]▸[/dim] {step}")
+        hints = [
+            s for s in ai_resp.next_steps
+            if s and "no further action" not in s.lower()
+        ][:2]
+        if hints:
+            from rich.panel import Panel
+            hint_text = "\n".join(f"  [cyan]▸[/cyan] {h}" for h in hints)
+            console.print(Panel(
+                hint_text,
+                title="[dim]Next steps[/dim]",
+                border_style="dim",
+                padding=(0, 1),
+            ))
 
         console.print()
 
