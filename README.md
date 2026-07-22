@@ -2,7 +2,7 @@
 
 > AI-powered Terraform assistant — manage cloud & on-prem infrastructure with natural language.
 
-TerraAI is a feature-rich interactive CLI that lets you describe infrastructure in plain English and turns it into production-ready Terraform HCL. It auto-version-controls every change with AI-written semantic commits, maintains a human-readable infrastructure changelog (the Chronicle), stores credentials securely in your OS keyring, supports 8 state backends, scans generated HCL for security misconfigurations and hardcoded secrets before every save, and offers tab-completion for slash commands and Terraform resource names.
+TerraAI ships as **two binaries**: a terminal REPL (`terraai`) and a browser-based web dashboard (`terraai-web`). Describe infrastructure in plain English — TerraAI turns it into production-ready Terraform HCL, auto-version-controls every change with AI-written semantic commits, maintains a human-readable changelog (the Chronicle), stores credentials securely in your OS keyring, supports 8 state backends, scans generated HCL for security misconfigurations and hardcoded secrets before every save, and offers tab-completion for slash commands and Terraform resource names.
 
 ---
 
@@ -11,6 +11,7 @@ TerraAI is a feature-rich interactive CLI that lets you describe infrastructure 
 - [How It Works](#how-it-works)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Web Dashboard](#web-dashboard)
 - [First-Run Setup Wizard](#first-run-setup-wizard)
 - [Credential Storage](#credential-storage)
 - [Azure Authentication](#azure-authentication)
@@ -88,24 +89,29 @@ cd terraai
 
 ### Option B — Download a pre-built binary
 
-No Python or virtual environment needed.
+No Python or virtual environment needed. Each release ships **two binaries per platform** — the REPL and the web dashboard.
 
-| Platform | Binary |
-|----------|--------|
-| macOS (Apple Silicon M1/M2/M3) | `terraai-macos-arm64` |
-| macOS (Intel) | `terraai-macos-x64` |
-| Linux x86_64 | `terraai-linux-x64` |
-| Windows x64 | `terraai-windows-x64.exe` |
+| Platform | REPL binary | Web dashboard binary |
+|----------|-------------|----------------------|
+| macOS (Apple Silicon M1/M2/M3) | `terraai-macos-arm64` | `terraai-web-macos-arm64` |
+| macOS (Intel) | `terraai-macos-x64` | `terraai-web-macos-x64` |
+| Linux x86_64 | `terraai-linux-x64` | `terraai-web-linux-x64` |
+| Windows x64 | `terraai-windows-x64.exe` | `terraai-web-windows-x64.exe` |
 
 Download from [GitHub Releases](https://github.com/yourorg/terraai/releases), then:
 
 ```bash
-# macOS / Linux
+# macOS / Linux — REPL
 chmod +x terraai-macos-arm64
 ./terraai-macos-arm64
 
+# macOS / Linux — Web dashboard
+chmod +x terraai-web-macos-arm64
+./terraai-web-macos-arm64          # opens http://localhost:8000
+
 # Windows (PowerShell)
 .\terraai-windows-x64.exe
+.\terraai-web-windows-x64.exe
 ```
 
 ### Optional: add to PATH
@@ -176,6 +182,42 @@ resource "azurerm_resource_group" "rg_prod" {
 ☁️ azure[my-infra] ❯ /apply
 ☁️ azure[my-infra] ❯ /diagram
 ```
+
+---
+
+## Web Dashboard
+
+Run `terraai-web` (or `./terraai-web-macos-arm64`) to launch a browser-based UI alongside the REPL. Both tools share the same workspace and configuration — they are two interfaces to the same engine, not separate products.
+
+```bash
+# Start the web dashboard (default port 8000)
+./terraai-web
+
+# Custom port
+./terraai-web --port 9000
+
+# Bind to all interfaces (for remote access)
+./terraai-web --host 0.0.0.0 --port 8000
+```
+
+Then open **http://localhost:8000** in your browser.
+
+### Dashboard tabs
+
+| Tab | What it shows |
+|-----|---------------|
+| **Infrastructure** | Prompt box — describe resources in natural language; generated HCL appears inline with a save button |
+| **Files** | All `.tf` files in the active workspace with syntax-highlighted preview |
+| **Plan / Apply** | Run `terraform plan` and `terraform apply` from the browser; output streams in real time |
+| **Architecture** | Interactive force-directed diagram of all resources and their dependencies (same data as `/diagram` in the REPL) |
+| **Chronicle** | AI-authored changelog (`INFRASTRUCTURE.md`) rendered as a timeline |
+| **Settings** | Switch workspace, change AI model, view current config |
+
+### Architecture tab
+
+The Architecture tab renders the same interactive diagram as `/diagram` in the REPL — resources as draggable nodes, dependency arrows, hover tooltips, fit-to-screen and SVG export. It updates automatically after each apply.
+
+> **Note:** `apply` from the web UI still requires typing `yes` in the confirmation prompt — it cannot be triggered silently.
 
 ---
 
@@ -722,6 +764,12 @@ terraai/
 │   ├── completer.py         # Tab-completion (slash commands + resource addresses)
 │   └── panels.py            # HCL panels, plan tables, resource tables
 │
+├── web/
+│   ├── main.py              # terraai-web entry point (Typer + uvicorn launcher)
+│   ├── app.py               # FastAPI application — routes for all dashboard tabs
+│   └── static/
+│       └── index.html       # Single-page dashboard UI (self-contained)
+│
 └── providers/
     └── __init__.py          # Provider HCL boilerplate
 ```
@@ -730,12 +778,12 @@ terraai/
 
 ## Building Executables
 
-Produce a single self-contained binary — no Python install needed on the target machine.
+Each build produces **two self-contained binaries** — `terraai` (REPL) and `terraai-web` (dashboard). No Python install needed on the target machine.
 
 ### macOS / Linux
 
 ```bash
-./build.sh           # builds dist/terraai
+./build.sh           # builds dist/terraai and dist/terraai-web
 ./build.sh --clean   # clean dist/ and build/ first
 ```
 
@@ -753,8 +801,8 @@ Push a version tag to trigger a multi-platform release:
 ```bash
 git tag v0.3.0
 git push origin v0.3.0
-# GitHub Actions builds macos-arm64, macos-x64, linux-x64, windows-x64
-# All 4 binaries are attached to the GitHub Release automatically
+# GitHub Actions builds 8 binaries (terraai + terraai-web × 4 platforms)
+# All binaries are attached to the GitHub Release automatically
 ```
 
 See [`.github/workflows/build-release.yml`](.github/workflows/build-release.yml).
