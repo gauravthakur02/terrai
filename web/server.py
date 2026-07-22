@@ -13,7 +13,12 @@ from pydantic import BaseModel
 
 app = FastAPI(title="TerraAI Web", docs_url=None, redoc_url=None)
 
-_STATIC = Path(__file__).parent / "static"
+# Resolve static dir whether running as source or PyInstaller onefile bundle
+import sys as _sys
+if getattr(_sys, "frozen", False):
+    _STATIC = Path(_sys._MEIPASS) / "web" / "static"
+else:
+    _STATIC = Path(__file__).parent / "static"
 
 # ── Shared runtime state ──────────────────────────────────────────────────────
 
@@ -343,5 +348,12 @@ def launch(config=None, host: str = "127.0.0.1", port: int = 7820):
         webbrowser.open(url)
 
     threading.Thread(target=_open, daemon=True).start()
-    print(f"\n  TerraAI Web UI  →  {url}\n  Press Ctrl+C to stop.\n")
-    uvicorn.run(app, host=host, port=port, log_level="warning")
+    print(f"\n  TerraAI Web UI  →  {url}\n  Press Ctrl+C to stop.\n", flush=True)
+    uvicorn.run(
+        app,
+        host=host,
+        port=port,
+        log_level="warning",
+        loop="asyncio",     # skip uvloop — avoids C-extension issues in frozen binary
+        http="h11",         # skip httptools — pure Python fallback
+    )

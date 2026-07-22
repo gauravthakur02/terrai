@@ -321,8 +321,6 @@ def root(
     if ctx.invoked_subcommand is not None:
         return
 
-    from session import TerraAISession
-
     config = TerraAIConfig.load()
 
     if workspace:
@@ -335,6 +333,13 @@ def root(
         config.api_key = api_key
     if api_base:
         config.api_base = api_base
+
+    # --web bypasses the interactive setup wizard, key check, and keyring calls
+    if web:
+        console.print(f"[dim]Starting web UI on http://localhost:{port} ...[/dim]")
+        from web.server import launch as _web_launch
+        _web_launch(config, port=port)
+        return
 
     # First-time setup wizard
     if not config.setup_complete:
@@ -357,12 +362,7 @@ def root(
     if config.default_provider == "azure":
         config.apply_azure_env()
 
-    if web:
-        from web.server import launch as _web_launch
-        console.print(f"[dim]Starting web UI on http://localhost:{port} ...[/dim]")
-        _web_launch(config, port=port)
-        return
-
+    from session import TerraAISession
     session = TerraAISession(config)
     session.run()
 
