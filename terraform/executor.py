@@ -8,6 +8,9 @@ from dataclasses import dataclass, field
 from typing import Generator
 
 
+PLAN_FILE = "tfplan"
+
+
 @dataclass
 class TerraformResult:
     success: bool

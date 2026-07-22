@@ -453,12 +453,15 @@ class TerraAISession:
             stats = self.executor.parse_plan_stats(plan_output)
             if any(stats[k] for k in ("add", "change", "destroy")):
                 plan_summary(plan_output, stats)
+                if not _has_terraform_error(plan_output):
+                    self._show_cost_estimate()
             if _has_terraform_error(plan_output):
                 self._explain_terraform_error(plan_output, "plan")
 
         elif command == "/apply":
             section("Terraform Apply", "🚀")
             if not self.config.auto_approve:
+                self._show_cost_estimate()
                 console.print("[bold yellow]⚠️  This will apply changes to real infrastructure.[/bold yellow]")
                 confirm = console.input("[bold]Type 'yes' to confirm: [/bold]")
                 if confirm.strip().lower() != "yes":
@@ -869,6 +872,8 @@ class TerraAISession:
                     stats = self.executor.parse_plan_stats(plan_output)
                     if any(stats[k] for k in ("add", "change", "destroy")):
                         plan_summary(plan_output, stats)
+                        if not _has_terraform_error(plan_output):
+                            self._show_cost_estimate()
                     if _has_terraform_error(plan_output):
                         self._explain_terraform_error(plan_output, "plan")
             else:
@@ -903,6 +908,8 @@ class TerraAISession:
                     stats = self.executor.parse_plan_stats(plan_output)
                     if any(stats[k] for k in ("add", "change", "destroy")):
                         plan_summary(plan_output, stats)
+                        if not _has_terraform_error(plan_output):
+                            self._show_cost_estimate()
                     if _has_terraform_error(plan_output):
                         self._explain_terraform_error(plan_output, "plan")
 
@@ -942,6 +949,64 @@ class TerraAISession:
                 hcl_file=hcl_file,
             )
             self.drift.snapshot_state(sha)
+
+    def _show_cost_estimate(self) -> None:
+        """Estimate costs for the current plan file and display a summary panel."""
+        from terraform.cost import is_available, is_installed, estimate, PLAN_FILE
+        if not is_available():
+            if is_installed():
+                console.print("[dim]💡 Cost estimates: set INFRACOST_API_KEY to enable[/dim]")
+            return
+        plan_path = self.executor.workspace_dir / PLAN_FILE
+        if not plan_path.exists():
+            return
+        try:
+            with Live(
+                Spinner("dots", text="[cyan]Estimating costs...[/cyan]"),
+                refresh_per_second=10,
+                console=console,
+            ):
+                data = estimate(self.executor.workspace_dir, plan_path)
+        except Exception:
+            return
+        if not data:
+            return
+        try:
+            diff_val = float(data.get("diffTotalMonthlyCost") or "0")
+        except (ValueError, TypeError):
+            return
+        sign = "+" if diff_val > 0 else ""
+        color = "red" if diff_val > 0 else "green" if diff_val < 0 else "dim"
+        diff_str = f"[{color}]{sign}${diff_val:,.2f} / month[/{color}]"
+        lines = [f"Monthly delta:  {diff_str}", ""]
+        resources: list[tuple[float, str]] = []
+        for project in data.get("projects", []):
+            for res in project.get("diff", {}).get("resources", []):
+                name = res.get("name", "")
+                try:
+                    cost = float(res.get("monthlyCost") or "0")
+                except (ValueError, TypeError):
+                    cost = 0.0
+                if name and cost != 0.0:
+                    resources.append((cost, name))
+        if resources:
+            resources.sort(key=lambda x: abs(x[0]), reverse=True)
+            lines.append("Resource breakdown:")
+            for cost_v, name in resources[:8]:
+                s = "+" if cost_v > 0 else ""
+                c = "red" if cost_v > 0 else "green"
+                lines.append(f"  {name:<44} [{c}]{s}${cost_v:,.2f}[/{c}]")
+            if len(resources) > 8:
+                lines.append(f"  [dim]… and {len(resources) - 8} more[/dim]")
+            lines.append("")
+        lines.append("[dim]Estimates use on-demand rates · excludes data transfer and free tier[/dim]")
+        console.print(Panel(
+            "\n".join(lines),
+            title="[bold cyan]💰 Cost Estimate[/bold cyan]",
+            border_style="cyan",
+            padding=(1, 2),
+        ))
+        console.print()
 
     def _explain_terraform_error(self, output: str, operation: str) -> None:
         """Send failed terraform output to AI and print a plain-English explanation."""
