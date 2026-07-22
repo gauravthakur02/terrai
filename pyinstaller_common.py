@@ -24,6 +24,7 @@ def _base() -> dict:
         + collect_submodules('vcs')
         + collect_submodules('state')
         + collect_submodules('providers')
+        + collect_submodules('security')
     )
 
     return dict(
